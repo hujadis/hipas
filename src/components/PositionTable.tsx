@@ -259,7 +259,7 @@ const PositionTable = ({
               console.log(`📝 Processing order:`, order);
 
               // Handle different order formats
-              const orderSide =
+              const orderSide: "BUY" | "SELL" =
                 order.side === "A" || order.side === "SELL" ? "SELL" : "BUY";
               const orderKey = `${addressObj.address}-${order.coin || order.asset}-${order.oid || order.id || Math.random()}`;
 
@@ -332,7 +332,7 @@ const PositionTable = ({
                   );
 
                   for (const order of altData) {
-                    const orderSide =
+                    const orderSide: "BUY" | "SELL" =
                       order.side === "A" || order.side === "SELL"
                         ? "SELL"
                         : "BUY";
@@ -489,7 +489,7 @@ const PositionTable = ({
                   await sendPositionNotification(
                     addressObj.address,
                     asset,
-                    side,
+                    side as string,
                     size,
                     entryPrice,
                     addressObj.alias,
@@ -504,7 +504,7 @@ const PositionTable = ({
                   asset,
                   size,
                   entry_price: entryPrice,
-                  side,
+                  side: side as string,
                   leverage,
                   is_active: true,
                 });
