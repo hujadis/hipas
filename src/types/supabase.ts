@@ -101,6 +101,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           leverage: number | null
+          position_key: string | null
           side: string
           size: number
           updated_at: string | null
@@ -113,6 +114,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           leverage?: number | null
+          position_key?: string | null
           side: string
           size: number
           updated_at?: string | null
@@ -125,6 +127,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           leverage?: number | null
+          position_key?: string | null
           side?: string
           size?: number
           updated_at?: string | null

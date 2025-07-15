@@ -13,7 +13,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "./ui/alert-dialog";
-import { Trash2, Plus, Bell, BellOff } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
+import { Trash2, Plus, Bell, BellOff, Users } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 
@@ -164,170 +170,208 @@ const AddressManagement: React.FC<AddressManagementProps> = ({
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-medium mb-2">
-              Tracked Addresses ({addresses.length})
-            </h3>
             {addresses.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No addresses added yet. Add an address to start tracking
-                positions.
-              </p>
+              <div className="text-center py-4">
+                <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No addresses added yet. Add an address to start tracking
+                  positions.
+                </p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {addresses.map((addressObj) => (
-                  <div
-                    key={addressObj.address}
-                    className="flex items-center justify-between p-3 rounded-md border bg-card"
-                  >
-                    <div className="flex-grow space-y-1">
-                      {editingAlias === addressObj.address ? (
-                        <div className="flex items-center space-x-2">
-                          <Input
-                            value={tempAlias}
-                            onChange={(e) => setTempAlias(e.target.value)}
-                            placeholder="Enter alias"
-                            className="h-8 text-sm"
-                          />
-                          <input
-                            type="color"
-                            value={tempColor}
-                            onChange={(e) => setTempColor(e.target.value)}
-                            className="w-8 h-8 rounded border cursor-pointer"
-                            title="Choose alias color"
-                          />
-                          <Button
-                            size="sm"
-                            onClick={() => handleSaveAlias(addressObj.address)}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={handleCancelEdit}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {addressObj.alias && (
-                            <div className="flex items-center space-x-2">
+              <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="addresses">
+                  <AccordionTrigger className="hover:no-underline">
+                    <div className="flex items-center space-x-2">
+                      <Users className="h-4 w-4" />
+                      <span>Tracked Addresses ({addresses.length})</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="max-h-64 overflow-y-auto space-y-2 pr-2">
+                      {addresses.map((addressObj) => (
+                        <div
+                          key={addressObj.address}
+                          className="flex items-center justify-between p-2 rounded-md border bg-card/50 hover:bg-card transition-colors"
+                        >
+                          <div className="flex-grow min-w-0">
+                            {editingAlias === addressObj.address ? (
                               <div className="flex items-center space-x-2">
-                                <div
-                                  className="w-3 h-3 rounded-full"
-                                  style={{
-                                    backgroundColor:
-                                      addressObj.color || "#3b82f6",
-                                  }}
-                                ></div>
-                                <span className="text-sm font-medium">
-                                  {addressObj.alias}
-                                </span>
+                                <Input
+                                  value={tempAlias}
+                                  onChange={(e) => setTempAlias(e.target.value)}
+                                  placeholder="Enter alias"
+                                  className="h-7 text-sm flex-1"
+                                />
+                                <input
+                                  type="color"
+                                  value={tempColor}
+                                  onChange={(e) => setTempColor(e.target.value)}
+                                  className="w-7 h-7 rounded border cursor-pointer"
+                                  title="Choose alias color"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    handleSaveAlias(addressObj.address)
+                                  }
+                                  className="h-7 px-2 text-xs"
+                                >
+                                  Save
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={handleCancelEdit}
+                                  className="h-7 px-2 text-xs"
+                                >
+                                  Cancel
+                                </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() =>
-                                  handleEditAlias(
-                                    addressObj.address,
-                                    addressObj.alias,
-                                    addressObj.color,
-                                  )
-                                }
-                              >
-                                Edit
-                              </Button>
-                            </div>
-                          )}
-                          <div className="flex items-center space-x-2">
-                            <Badge
-                              variant="outline"
-                              className="font-mono text-xs py-1 px-2 overflow-hidden text-ellipsis"
-                            >
-                              {addressObj.address}
-                            </Badge>
-                            {!addressObj.alias && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() =>
-                                  handleEditAlias(addressObj.address)
-                                }
-                              >
-                                Add Alias
-                              </Button>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                                    {addressObj.alias ? (
+                                      <div className="flex items-center space-x-2 min-w-0">
+                                        <div
+                                          className="w-2 h-2 rounded-full flex-shrink-0"
+                                          style={{
+                                            backgroundColor:
+                                              addressObj.color || "#3b82f6",
+                                          }}
+                                        ></div>
+                                        <span className="text-sm font-medium truncate">
+                                          {addressObj.alias}
+                                        </span>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 px-1 text-xs flex-shrink-0"
+                                          onClick={() =>
+                                            handleEditAlias(
+                                              addressObj.address,
+                                              addressObj.alias,
+                                              addressObj.color,
+                                            )
+                                          }
+                                        >
+                                          Edit
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center space-x-2">
+                                        <Badge
+                                          variant="outline"
+                                          className="font-mono text-xs py-0.5 px-1 truncate max-w-32"
+                                        >
+                                          {`${addressObj.address.slice(0, 6)}...${addressObj.address.slice(-4)}`}
+                                        </Badge>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 px-1 text-xs"
+                                          onClick={() =>
+                                            handleEditAlias(addressObj.address)
+                                          }
+                                        >
+                                          Add Alias
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center space-x-1 flex-shrink-0">
+                                    <div className="flex items-center space-x-1">
+                                      {addressObj.notifications_enabled ? (
+                                        <Bell className="h-3 w-3 text-green-500" />
+                                      ) : (
+                                        <BellOff className="h-3 w-3 text-muted-foreground" />
+                                      )}
+                                      <Switch
+                                        checked={
+                                          addressObj.notifications_enabled ??
+                                          true
+                                        }
+                                        onCheckedChange={(checked) => {
+                                          console.log(
+                                            "🔔 Toggle notifications:",
+                                            {
+                                              address: addressObj.address,
+                                              checked,
+                                            },
+                                          );
+                                          onToggleNotifications(
+                                            addressObj.address,
+                                            checked,
+                                          );
+                                        }}
+                                        className="scale-75"
+                                      />
+                                    </div>
+                                    <AlertDialog
+                                      open={
+                                        isDialogOpen &&
+                                        addressToRemove === addressObj.address
+                                      }
+                                      onOpenChange={setIsDialogOpen}
+                                    >
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-6 w-6 p-0"
+                                          onClick={() =>
+                                            handleRemoveClick(
+                                              addressObj.address,
+                                            )
+                                          }
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            Remove Address
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Are you sure you want to remove this
+                                            address? This action cannot be
+                                            undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>
+                                            Cancel
+                                          </AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={confirmRemove}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                          >
+                                            Remove
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </div>
+                                </div>
+                                {addressObj.alias && (
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-xs py-0.5 px-1 truncate max-w-full"
+                                  >
+                                    {`${addressObj.address.slice(0, 8)}...${addressObj.address.slice(-6)}`}
+                                  </Badge>
+                                )}
+                              </div>
                             )}
                           </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="flex items-center space-x-2">
-                              {addressObj.notifications_enabled ? (
-                                <Bell className="h-3 w-3 text-green-500" />
-                              ) : (
-                                <BellOff className="h-3 w-3 text-muted-foreground" />
-                              )}
-                              <span className="text-xs text-muted-foreground">
-                                Notifications
-                              </span>
-                            </div>
-                            <Switch
-                              checked={addressObj.notifications_enabled ?? true}
-                              onCheckedChange={(checked) => {
-                                console.log("🔔 Toggle notifications:", {
-                                  address: addressObj.address,
-                                  checked,
-                                });
-                                onToggleNotifications(
-                                  addressObj.address,
-                                  checked,
-                                );
-                              }}
-                              className="scale-75"
-                            />
-                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                    <AlertDialog
-                      open={
-                        isDialogOpen && addressToRemove === addressObj.address
-                      }
-                      onOpenChange={setIsDialogOpen}
-                    >
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2"
-                          onClick={() => handleRemoveClick(addressObj.address)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Remove Address</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to remove this address? This
-                            action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={confirmRemove}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            Remove
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                ))}
-              </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             )}
           </div>
         </div>
