@@ -1,0 +1,1 @@
+ALTER TABLE wallet_addresses ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN DEFAULT true;
