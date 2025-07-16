@@ -40,7 +40,17 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Settings,
+  Columns,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   getTrackedPositions,
   getNewPositions,
@@ -135,6 +145,50 @@ const PositionTable = ({
     direction: "asc" | "desc";
     customSort?: string;
   }>({ key: null, direction: "asc" });
+
+  // Column visibility state with localStorage persistence
+  const [columnVisibility, setColumnVisibility] = useState<
+    Record<string, boolean>
+  >(() => {
+    try {
+      const saved = localStorage.getItem("positionTable-columnVisibility");
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (error) {
+      console.error(
+        "Error loading column visibility from localStorage:",
+        error,
+      );
+    }
+    // Default visibility settings
+    return {
+      asset: true,
+      side: true,
+      size: true,
+      sizeUSD: true,
+      entryPrice: true,
+      currentPrice: true,
+      leverage: true,
+      pnl: true,
+      liquidationPrice: true,
+      status: true,
+      duration: true,
+      address: true,
+    };
+  });
+
+  // Save column visibility to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "positionTable-columnVisibility",
+        JSON.stringify(columnVisibility),
+      );
+    } catch (error) {
+      console.error("Error saving column visibility to localStorage:", error);
+    }
+  }, [columnVisibility]);
 
   const fetchCurrentPrices = async (
     assets: string[],
@@ -414,8 +468,7 @@ const PositionTable = ({
       const positionsWithUSD = allPositions.map((position) => {
         const currentPrice =
           currentPrices.get(position.asset) || position.entryPrice;
-        // Calculate the actual USD amount invested (considering leverage)
-        // For leveraged positions, the actual money put in = (size * currentPrice) / leverage
+        // Calculate the USD value of the position divided by leverage to show actual capital at risk
         const sizeUSD =
           Math.abs(position.size * currentPrice) / (position.leverage || 1);
 
@@ -1164,309 +1217,498 @@ const PositionTable = ({
 
         {/* Desktop Table View */}
         <div className="hidden lg:block overflow-x-auto">
+          <div className="flex justify-between items-center mb-4">
+            <div className="text-sm text-muted-foreground">
+              Showing {paginatedPositions.length} of {sortedPositions.length}{" "}
+              positions
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="ml-auto">
+                  <Columns className="mr-2 h-4 w-4" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.asset}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({ ...prev, asset: checked }))
+                  }
+                >
+                  Asset
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.side}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({ ...prev, side: checked }))
+                  }
+                >
+                  Side
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.size}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({ ...prev, size: checked }))
+                  }
+                >
+                  Size
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.sizeUSD}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      sizeUSD: checked,
+                    }))
+                  }
+                >
+                  Size (USD)
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.entryPrice}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      entryPrice: checked,
+                    }))
+                  }
+                >
+                  Entry Price
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.currentPrice}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      currentPrice: checked,
+                    }))
+                  }
+                >
+                  Current Price
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.leverage}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      leverage: checked,
+                    }))
+                  }
+                >
+                  Leverage
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.pnl}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({ ...prev, pnl: checked }))
+                  }
+                >
+                  PnL
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.liquidationPrice}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      liquidationPrice: checked,
+                    }))
+                  }
+                >
+                  Liquidation
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.status}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      status: checked,
+                    }))
+                  }
+                >
+                  Status
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.duration}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      duration: checked,
+                    }))
+                  }
+                >
+                  Duration
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={columnVisibility.address}
+                  onCheckedChange={(checked) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      address: checked,
+                    }))
+                  }
+                >
+                  Address
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("asset")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Asset</span>
-                    {getSortIcon("asset")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("side")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Side</span>
-                    {getSortIcon("side")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("size")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Size</span>
-                    {getSortIcon("size")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("sizeUSD")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Size (USD)</span>
-                    {getSortIcon("sizeUSD")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("entryPrice")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Entry Price</span>
-                    {getSortIcon("entryPrice")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("currentPrice")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Current Price</span>
-                    {getSortIcon("currentPrice")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("leverage")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Leverage</span>
-                    {getSortIcon("leverage")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("pnl")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>PnL</span>
-                    {getSortIcon("pnl")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("liquidationPrice")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Liquidation</span>
-                    {getSortIcon("liquidationPrice")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort(null, "status")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Status</span>
-                    {getSortIcon(null, "status")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort(null, "duration")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Duration</span>
-                    {getSortIcon(null, "duration")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer hover:bg-muted/50 select-none"
-                  onClick={() => handleSort("address")}
-                >
-                  <div className="flex items-center space-x-1">
-                    <span>Address</span>
-                    {getSortIcon("address")}
-                  </div>
-                </TableHead>
+                {columnVisibility.asset && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("asset")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Asset</span>
+                      {getSortIcon("asset")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.side && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("side")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Side</span>
+                      {getSortIcon("side")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.size && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("size")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Size</span>
+                      {getSortIcon("size")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.sizeUSD && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("sizeUSD")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Size (USD)</span>
+                      {getSortIcon("sizeUSD")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.entryPrice && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("entryPrice")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Entry Price</span>
+                      {getSortIcon("entryPrice")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.currentPrice && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("currentPrice")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Current Price</span>
+                      {getSortIcon("currentPrice")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.leverage && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("leverage")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Leverage</span>
+                      {getSortIcon("leverage")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.pnl && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("pnl")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>PnL</span>
+                      {getSortIcon("pnl")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.liquidationPrice && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("liquidationPrice")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Liquidation</span>
+                      {getSortIcon("liquidationPrice")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.status && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort(null, "status")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {getSortIcon(null, "status")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.duration && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort(null, "duration")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Duration</span>
+                      {getSortIcon(null, "duration")}
+                    </div>
+                  </TableHead>
+                )}
+                {columnVisibility.address && (
+                  <TableHead
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("address")}
+                  >
+                    <div className="flex items-center space-x-1">
+                      <span>Address</span>
+                      {getSortIcon("address")}
+                    </div>
+                  </TableHead>
+                )}
                 {showHideButton && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedPositions.map((position, index) => (
                 <TableRow key={index}>
-                  <TableCell className="font-medium">
-                    {position.asset}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        position.side === "LONG" ? "default" : "destructive"
-                      }
-                      className="font-medium"
-                    >
-                      {position.side}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={
-                        position.size > 0 ? "text-green-500" : "text-red-500"
-                      }
-                    >
-                      {position.size > 0 ? "+" : ""}
-                      {Math.abs(position.size) < 0.001
-                        ? position.size.toExponential(3)
-                        : position.size.toFixed(3)}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-medium text-blue-600">
-                      {formatCurrency(position.sizeUSD)}
-                    </span>
-                  </TableCell>
-                  <TableCell>{formatPrice(position.entryPrice)}</TableCell>
-                  <TableCell>{formatPrice(position.currentPrice)}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="font-mono">
-                      {position.leverage
-                        ? `${position.leverage.toFixed(1)}x`
-                        : "N/A"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
+                  {columnVisibility.asset && (
+                    <TableCell className="font-medium">
+                      {position.asset}
+                    </TableCell>
+                  )}
+                  {columnVisibility.side && (
+                    <TableCell>
+                      <Badge
+                        variant={
+                          position.side === "LONG" ? "default" : "destructive"
+                        }
+                        className="font-medium"
+                      >
+                        {position.side}
+                      </Badge>
+                    </TableCell>
+                  )}
+                  {columnVisibility.size && (
+                    <TableCell>
                       <span
                         className={
-                          position.pnl >= 0 ? "text-green-500" : "text-red-500"
+                          position.size > 0 ? "text-green-500" : "text-red-500"
                         }
                       >
-                        {formatCurrency(position.pnl)}
+                        {position.size > 0 ? "+" : ""}
+                        {Math.abs(position.size) < 0.001
+                          ? position.size.toExponential(3)
+                          : position.size.toFixed(3)}
                       </span>
-                      <span
-                        className={`text-xs ${position.pnlPercentage >= 0 ? "text-green-500" : "text-red-500"}`}
-                      >
-                        {position.pnlPercentage >= 0 ? "+" : ""}
-                        {position.pnlPercentage.toFixed(2)}%
+                    </TableCell>
+                  )}
+                  {columnVisibility.sizeUSD && (
+                    <TableCell>
+                      <span className="font-medium text-blue-600">
+                        {formatCurrency(position.sizeUSD)}
                       </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="font-mono">
-                      {position.liquidationPrice > 0
-                        ? formatPrice(position.liquidationPrice)
-                        : "N/A"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={(() => {
-                        const trackedPos = trackedPositions.find(
-                          (tp) => tp.position_key === position.positionKey,
-                        );
-                        if (trackedPos?.status === "new") return "default";
-                        if (trackedPos?.status === "closed") return "secondary";
-                        return "default";
-                      })()}
-                      className="text-xs"
-                    >
-                      {(() => {
-                        const trackedPos = trackedPositions.find(
-                          (tp) => tp.position_key === position.positionKey,
-                        );
-                        if (trackedPos?.status === "new") return "New";
-                        if (trackedPos?.status === "closed") return "Closed";
-                        return "Active";
-                      })()}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      // For active positions, find the tracked position to get creation time
-                      const trackedPos = trackedPositions.find(
-                        (tp) => tp.position_key === position.positionKey,
-                      );
-
-                      if (trackedPos && trackedPos.created_at) {
-                        const createdAt = new Date(trackedPos.created_at);
-                        const now = new Date();
-                        const durationMinutes = Math.floor(
-                          (now.getTime() - createdAt.getTime()) / (1000 * 60),
-                        );
-
-                        if (durationMinutes < 60) {
-                          return (
-                            <span className="text-xs text-muted-foreground">
-                              {durationMinutes}m
-                            </span>
-                          );
-                        } else {
-                          const hours = Math.floor(durationMinutes / 60);
-                          return (
-                            <span className="text-xs text-muted-foreground">
-                              {hours}h
-                            </span>
-                          );
-                        }
-                      } else if (position.openTime) {
-                        // For closed positions, use the stored duration or calculate from openTime
-                        const durationMinutes = Math.floor(
-                          (Date.now() - position.openTime.getTime()) /
-                            (1000 * 60),
-                        );
-
-                        if (durationMinutes < 60) {
-                          return (
-                            <span className="text-xs text-muted-foreground">
-                              {durationMinutes}m
-                            </span>
-                          );
-                        } else {
-                          const hours = Math.floor(durationMinutes / 60);
-                          return (
-                            <span className="text-xs text-muted-foreground">
-                              {hours}h
-                            </span>
-                          );
-                        }
-                      } else {
-                        return (
-                          <span className="text-xs text-muted-foreground">
-                            -
-                          </span>
-                        );
-                      }
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      {position.alias && (
-                        <div className="flex items-center space-x-2">
-                          <div
-                            className="w-2 h-2 rounded-full"
-                            style={{
-                              backgroundColor: position.color || "#3b82f6",
-                            }}
-                          ></div>
-                          <span className="text-xs font-medium">
-                            {position.alias}
-                          </span>
-                        </div>
-                      )}
-                      <span
-                        className="font-mono text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigator.clipboard.writeText(position.address);
-                        }}
-                        title="Click to copy address"
-                      >
+                    </TableCell>
+                  )}
+                  {columnVisibility.entryPrice && (
+                    <TableCell>{formatPrice(position.entryPrice)}</TableCell>
+                  )}
+                  {columnVisibility.currentPrice && (
+                    <TableCell>{formatPrice(position.currentPrice)}</TableCell>
+                  )}
+                  {columnVisibility.leverage && (
+                    <TableCell>
+                      <Badge variant="secondary" className="font-mono">
+                        {position.leverage
+                          ? `${position.leverage.toFixed(1)}x`
+                          : "N/A"}
+                      </Badge>
+                    </TableCell>
+                  )}
+                  {columnVisibility.pnl && (
+                    <TableCell>
+                      <div className="flex flex-col">
                         <span
-                          className="hover:underline hover:text-primary"
+                          className={
+                            position.pnl >= 0
+                              ? "text-green-500"
+                              : "text-red-500"
+                          }
+                        >
+                          {formatCurrency(position.pnl)}
+                        </span>
+                        <span
+                          className={`text-xs ${position.pnlPercentage >= 0 ? "text-green-500" : "text-red-500"}`}
+                        >
+                          {position.pnlPercentage >= 0 ? "+" : ""}
+                          {position.pnlPercentage.toFixed(2)}%
+                        </span>
+                      </div>
+                    </TableCell>
+                  )}
+                  {columnVisibility.liquidationPrice && (
+                    <TableCell>
+                      <Badge variant="outline" className="font-mono">
+                        {position.liquidationPrice > 0
+                          ? formatPrice(position.liquidationPrice)
+                          : "N/A"}
+                      </Badge>
+                    </TableCell>
+                  )}
+                  {columnVisibility.status && (
+                    <TableCell>
+                      <Badge
+                        variant={(() => {
+                          const trackedPos = trackedPositions.find(
+                            (tp) => tp.position_key === position.positionKey,
+                          );
+                          if (trackedPos?.status === "new") return "default";
+                          if (trackedPos?.status === "closed")
+                            return "secondary";
+                          return "default";
+                        })()}
+                        className="text-xs"
+                      >
+                        {(() => {
+                          const trackedPos = trackedPositions.find(
+                            (tp) => tp.position_key === position.positionKey,
+                          );
+                          if (trackedPos?.status === "new") return "New";
+                          if (trackedPos?.status === "closed") return "Closed";
+                          return "Active";
+                        })()}
+                      </Badge>
+                    </TableCell>
+                  )}
+                  {columnVisibility.duration && (
+                    <TableCell>
+                      {(() => {
+                        // For active positions, find the tracked position to get creation time
+                        const trackedPos = trackedPositions.find(
+                          (tp) => tp.position_key === position.positionKey,
+                        );
+
+                        if (trackedPos && trackedPos.created_at) {
+                          const createdAt = new Date(trackedPos.created_at);
+                          const now = new Date();
+                          const durationMinutes = Math.floor(
+                            (now.getTime() - createdAt.getTime()) / (1000 * 60),
+                          );
+
+                          if (durationMinutes < 60) {
+                            return (
+                              <span className="text-xs text-muted-foreground">
+                                {durationMinutes}m
+                              </span>
+                            );
+                          } else {
+                            const hours = Math.floor(durationMinutes / 60);
+                            return (
+                              <span className="text-xs text-muted-foreground">
+                                {hours}h
+                              </span>
+                            );
+                          }
+                        } else if (position.openTime) {
+                          // For closed positions, use the stored duration or calculate from openTime
+                          const durationMinutes = Math.floor(
+                            (Date.now() - position.openTime.getTime()) /
+                              (1000 * 60),
+                          );
+
+                          if (durationMinutes < 60) {
+                            return (
+                              <span className="text-xs text-muted-foreground">
+                                {durationMinutes}m
+                              </span>
+                            );
+                          } else {
+                            const hours = Math.floor(durationMinutes / 60);
+                            return (
+                              <span className="text-xs text-muted-foreground">
+                                {hours}h
+                              </span>
+                            );
+                          }
+                        } else {
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              -
+                            </span>
+                          );
+                        }
+                      })()}
+                    </TableCell>
+                  )}
+                  {columnVisibility.address && (
+                    <TableCell>
+                      <div className="flex flex-col">
+                        {position.alias && (
+                          <div className="flex items-center space-x-2">
+                            <div
+                              className="w-2 h-2 rounded-full"
+                              style={{
+                                backgroundColor: position.color || "#3b82f6",
+                              }}
+                            ></div>
+                            <span className="text-xs font-medium">
+                              {position.alias}
+                            </span>
+                          </div>
+                        )}
+                        <span
+                          className="font-mono text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Dispatch custom event to filter by this address
-                            const event = new CustomEvent("search-trader", {
-                              detail: position.address,
-                            });
-                            window.dispatchEvent(event);
-                            // Also update the trader filter directly
-                            setTraderFilter(position.address);
-                            setSelectedTrader("all");
-                            setActiveTab("active");
+                            navigator.clipboard.writeText(position.address);
                           }}
+                          title="Click to copy address"
                         >
-                          {position.address}
+                          <span
+                            className="hover:underline hover:text-primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Dispatch custom event to filter by this address
+                              const event = new CustomEvent("search-trader", {
+                                detail: position.address,
+                              });
+                              window.dispatchEvent(event);
+                              // Also update the trader filter directly
+                              setTraderFilter(position.address);
+                              setSelectedTrader("all");
+                              setActiveTab("active");
+                            }}
+                          >
+                            {position.address}
+                          </span>
                         </span>
-                      </span>
-                    </div>
-                  </TableCell>
+                      </div>
+                    </TableCell>
+                  )}
                   {showHideButton && (
                     <TableCell>
                       <Button
@@ -2202,11 +2444,11 @@ const PositionTable = ({
                               </div>
                             </div>
 
-                            {/* Position Size and PnL */}
+                            {/* Position USD Value and PnL */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                               <div>
                                 <div className="text-sm font-medium mb-1">
-                                  Position Size
+                                  Position Value (USD)
                                 </div>
                                 <div className="flex justify-between">
                                   <div>
@@ -2214,8 +2456,7 @@ const PositionTable = ({
                                       Long:
                                     </span>
                                     <span className="ml-1 font-medium text-green-600 dark:text-green-400">
-                                      {data.longSize.toFixed(2)} (
-                                      {formatCurrency(data.longUSD)})
+                                      {formatCurrency(data.longUSD)}
                                     </span>
                                   </div>
                                   <div>
@@ -2223,15 +2464,22 @@ const PositionTable = ({
                                       Short:
                                     </span>
                                     <span className="ml-1 font-medium text-red-600 dark:text-red-400">
-                                      {data.shortSize.toFixed(2)} (
-                                      {formatCurrency(data.shortUSD)})
+                                      {formatCurrency(data.shortUSD)}
                                     </span>
                                   </div>
+                                </div>
+                                <div className="mt-1 text-right">
+                                  <span className="text-xs text-muted-foreground">
+                                    Total:
+                                  </span>
+                                  <span className="ml-1 font-medium text-blue-600 dark:text-blue-400">
+                                    {formatCurrency(data.totalUSD)}
+                                  </span>
                                 </div>
                               </div>
                               <div>
                                 <div className="text-sm font-medium mb-1">
-                                  PnL
+                                  PnL Performance
                                 </div>
                                 <div className="flex justify-between">
                                   <div>
@@ -2243,6 +2491,16 @@ const PositionTable = ({
                                     >
                                       {formatCurrency(data.longPnl)}
                                     </span>
+                                    <span className="text-xs ml-1 text-muted-foreground">
+                                      (
+                                      {data.longUSD > 0
+                                        ? (
+                                            (data.longPnl / data.longUSD) *
+                                            100
+                                          ).toFixed(1)
+                                        : "0.0"}
+                                      %)
+                                    </span>
                                   </div>
                                   <div>
                                     <span className="text-xs text-muted-foreground">
@@ -2252,6 +2510,16 @@ const PositionTable = ({
                                       className={`ml-1 font-medium ${data.shortPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
                                     >
                                       {formatCurrency(data.shortPnl)}
+                                    </span>
+                                    <span className="text-xs ml-1 text-muted-foreground">
+                                      (
+                                      {data.shortUSD > 0
+                                        ? (
+                                            (data.shortPnl / data.shortUSD) *
+                                            100
+                                          ).toFixed(1)
+                                        : "0.0"}
+                                      %)
                                     </span>
                                   </div>
                                 </div>
@@ -2264,6 +2532,494 @@ const PositionTable = ({
                                   >
                                     {formatCurrency(data.totalPnl)}
                                   </span>
+                                  <span className="text-xs ml-1 text-muted-foreground">
+                                    (
+                                    {data.totalUSD > 0
+                                      ? (
+                                          (data.totalPnl / data.totalUSD) *
+                                          100
+                                        ).toFixed(1)
+                                      : "0.0"}
+                                    %)
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Market Insights */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 p-3 bg-muted/20 rounded-md">
+                              <div className="text-center">
+                                <div className="text-sm text-muted-foreground mb-1">
+                                  Market Sentiment
+                                </div>
+                                <div className="font-medium">
+                                  {(() => {
+                                    const longBias =
+                                      data.longCount / data.totalCount;
+                                    if (longBias >= 0.7) return "🟢 Bullish";
+                                    if (longBias <= 0.3) return "🔴 Bearish";
+                                    return "🟡 Neutral";
+                                  })()}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {(
+                                    (data.longCount / data.totalCount) *
+                                    100
+                                  ).toFixed(0)}
+                                  % Long
+                                </div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-sm text-muted-foreground mb-1">
+                                  Risk Level
+                                </div>
+                                <div className="font-medium">
+                                  {(() => {
+                                    const avgLeverage =
+                                      data.longUSD + data.shortUSD > 0
+                                        ? (data.longSize *
+                                            data.avgLongEntryPrice +
+                                            data.shortSize *
+                                              data.avgShortEntryPrice) /
+                                          (data.longUSD + data.shortUSD)
+                                        : 1;
+                                    if (avgLeverage >= 10) return "🔴 High";
+                                    if (avgLeverage >= 5) return "🟡 Medium";
+                                    return "🟢 Low";
+                                  })()}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Avg{" "}
+                                  {(
+                                    (data.longSize * data.avgLongEntryPrice +
+                                      data.shortSize *
+                                        data.avgShortEntryPrice) /
+                                      (data.longUSD + data.shortUSD) || 1
+                                  ).toFixed(1)}
+                                  x
+                                </div>
+                              </div>
+                              <div className="text-center">
+                                <div className="text-sm text-muted-foreground mb-1">
+                                  Momentum
+                                </div>
+                                <div className="font-medium">
+                                  {(() => {
+                                    const overallProfitability =
+                                      data.totalUSD > 0
+                                        ? data.totalPnl / data.totalUSD
+                                        : 0;
+                                    if (overallProfitability >= 0.05)
+                                      return "🚀 Strong";
+                                    if (overallProfitability >= 0.02)
+                                      return "📈 Positive";
+                                    if (overallProfitability >= -0.02)
+                                      return "➡️ Flat";
+                                    return "📉 Negative";
+                                  })()}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {data.totalUSD > 0
+                                    ? (
+                                        (data.totalPnl / data.totalUSD) *
+                                        100
+                                      ).toFixed(1)
+                                    : "0.0"}
+                                  % ROI
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Enhanced Trading Activity Analysis */}
+                            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                              <div className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-3">
+                                📊 Trading Activity Analysis - Key Decision
+                                Factors
+                              </div>
+
+                              {/* Trader Conviction Analysis */}
+                              <div className="mb-3 p-2 bg-white dark:bg-gray-900 rounded border">
+                                <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
+                                  🎯 Trader Conviction Level
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Participants:
+                                    </span>
+                                    <span className="ml-1 font-medium">
+                                      {data.addresses.size}{" "}
+                                      {data.addresses.size === 1
+                                        ? "trader"
+                                        : "traders"}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Avg Position Size:
+                                    </span>
+                                    <span className="ml-1 font-medium">
+                                      {(
+                                        data.totalUSD / data.addresses.size
+                                      ).toLocaleString("en-US", {
+                                        style: "currency",
+                                        currency: "USD",
+                                        maximumFractionDigits: 0,
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-xs">
+                                  <span className="font-medium">
+                                    {(() => {
+                                      const avgSize =
+                                        data.totalUSD / data.addresses.size;
+                                      const conviction =
+                                        data.addresses.size >= 5 &&
+                                        avgSize >= 10000
+                                          ? "Very High"
+                                          : data.addresses.size >= 3 &&
+                                              avgSize >= 5000
+                                            ? "High"
+                                            : data.addresses.size >= 2 &&
+                                                avgSize >= 1000
+                                              ? "Medium"
+                                              : "Low";
+                                      const convictionColor =
+                                        conviction === "Very High"
+                                          ? "text-green-600 dark:text-green-400"
+                                          : conviction === "High"
+                                            ? "text-blue-600 dark:text-blue-400"
+                                            : conviction === "Medium"
+                                              ? "text-yellow-600 dark:text-yellow-400"
+                                              : "text-red-600 dark:text-red-400";
+                                      return (
+                                        <span className={convictionColor}>
+                                          {conviction} Conviction
+                                        </span>
+                                      );
+                                    })()}
+                                  </span>
+                                  <span className="ml-2 text-gray-500">
+                                    {data.addresses.size >= 5
+                                      ? "(Many traders with significant positions - strong signal)"
+                                      : data.addresses.size >= 3
+                                        ? "(Multiple traders - moderate signal)"
+                                        : data.addresses.size >= 2
+                                          ? "(Few traders - weak signal)"
+                                          : "(Single trader - very weak signal)"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Money Flow Analysis */}
+                              <div className="mb-3 p-2 bg-white dark:bg-gray-900 rounded border">
+                                <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
+                                  💰 Money Flow & Risk Assessment
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Total Capital:
+                                    </span>
+                                    <div className="font-medium text-blue-600 dark:text-blue-400">
+                                      {formatCurrency(data.totalUSD)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Avg Leverage:
+                                    </span>
+                                    <div className="font-medium">
+                                      {(() => {
+                                        const avgLeverage =
+                                          data.longUSD + data.shortUSD > 0
+                                            ? (data.longSize *
+                                                data.avgLongEntryPrice +
+                                                data.shortSize *
+                                                  data.avgShortEntryPrice) /
+                                              (data.longUSD + data.shortUSD)
+                                            : 1;
+                                        const leverageColor =
+                                          avgLeverage >= 10
+                                            ? "text-red-600 dark:text-red-400"
+                                            : avgLeverage >= 5
+                                              ? "text-yellow-600 dark:text-yellow-400"
+                                              : "text-green-600 dark:text-green-400";
+                                        return (
+                                          <span className={leverageColor}>
+                                            {avgLeverage.toFixed(1)}x
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Risk Level:
+                                    </span>
+                                    <div className="font-medium">
+                                      {(() => {
+                                        const avgLeverage =
+                                          data.longUSD + data.shortUSD > 0
+                                            ? (data.longSize *
+                                                data.avgLongEntryPrice +
+                                                data.shortSize *
+                                                  data.avgShortEntryPrice) /
+                                              (data.longUSD + data.shortUSD)
+                                            : 1;
+                                        if (avgLeverage >= 10)
+                                          return (
+                                            <span className="text-red-600 dark:text-red-400">
+                                              🔴 High Risk
+                                            </span>
+                                          );
+                                        if (avgLeverage >= 5)
+                                          return (
+                                            <span className="text-yellow-600 dark:text-yellow-400">
+                                              🟡 Medium Risk
+                                            </span>
+                                          );
+                                        return (
+                                          <span className="text-green-600 dark:text-green-400">
+                                            🟢 Low Risk
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                  💡{" "}
+                                  {(() => {
+                                    const avgLeverage =
+                                      data.longUSD + data.shortUSD > 0
+                                        ? (data.longSize *
+                                            data.avgLongEntryPrice +
+                                            data.shortSize *
+                                              data.avgShortEntryPrice) /
+                                          (data.longUSD + data.shortUSD)
+                                        : 1;
+                                    if (avgLeverage >= 10)
+                                      return "High leverage = Higher risk but potentially higher rewards. Be cautious.";
+                                    if (avgLeverage >= 5)
+                                      return "Moderate leverage = Balanced risk/reward. Good for following trends.";
+                                    return "Low leverage = Lower risk. Safer to follow these traders.";
+                                  })()}
+                                </div>
+                              </div>
+
+                              {/* Timing Analysis */}
+                              <div className="mb-3 p-2 bg-white dark:bg-gray-900 rounded border">
+                                <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
+                                  ⏰ Timing & Momentum Analysis
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Last Activity:
+                                    </span>
+                                    <span className="ml-1 font-medium">
+                                      {(() => {
+                                        const lastActivityText =
+                                          data.lastActivity
+                                            ? (() => {
+                                                const now = new Date();
+                                                const diffMs =
+                                                  now.getTime() -
+                                                  data.lastActivity!.getTime();
+                                                const diffMins = Math.floor(
+                                                  diffMs / 60000,
+                                                );
+                                                if (diffMins < 60)
+                                                  return `${diffMins}m ago`;
+                                                const diffHours = Math.floor(
+                                                  diffMins / 60,
+                                                );
+                                                if (diffHours < 24)
+                                                  return `${diffHours}h ago`;
+                                                return `${Math.floor(diffHours / 24)}d ago`;
+                                              })()
+                                            : "Unknown";
+                                        return lastActivityText;
+                                      })()}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                      Trend Strength:
+                                    </span>
+                                    <span className="ml-1 font-medium">
+                                      {(() => {
+                                        const overallProfitability =
+                                          data.totalUSD > 0
+                                            ? data.totalPnl / data.totalUSD
+                                            : 0;
+                                        if (overallProfitability >= 0.05)
+                                          return (
+                                            <span className="text-green-600 dark:text-green-400">
+                                              🚀 Very Strong
+                                            </span>
+                                          );
+                                        if (overallProfitability >= 0.02)
+                                          return (
+                                            <span className="text-blue-600 dark:text-blue-400">
+                                              📈 Strong
+                                            </span>
+                                          );
+                                        if (overallProfitability >= -0.02)
+                                          return (
+                                            <span className="text-gray-600 dark:text-gray-400">
+                                              ➡️ Neutral
+                                            </span>
+                                          );
+                                        return (
+                                          <span className="text-red-600 dark:text-red-400">
+                                            📉 Weak
+                                          </span>
+                                        );
+                                      })()}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                  💡{" "}
+                                  {(() => {
+                                    const now = new Date();
+                                    const diffMs = data.lastActivity
+                                      ? now.getTime() -
+                                        data.lastActivity.getTime()
+                                      : Infinity;
+                                    const diffHours = Math.floor(
+                                      diffMs / (1000 * 60 * 60),
+                                    );
+                                    if (diffHours < 1)
+                                      return "Very recent activity - trend is fresh and active. Good time to follow.";
+                                    if (diffHours < 6)
+                                      return "Recent activity - trend is still active. Consider following.";
+                                    if (diffHours < 24)
+                                      return "Activity from today - trend may be cooling down. Be cautious.";
+                                    return "Old activity - trend may have changed. Wait for fresh signals.";
+                                  })()}
+                                </div>
+                              </div>
+
+                              {/* Final Trading Decision */}
+                              <div className="p-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 rounded border border-blue-300 dark:border-blue-700">
+                                <div className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-1">
+                                  🎯 Trading Decision Summary
+                                </div>
+                                <div className="text-xs">
+                                  {(() => {
+                                    const conviction =
+                                      data.addresses.size >= 5
+                                        ? "High"
+                                        : data.addresses.size >= 3
+                                          ? "Medium"
+                                          : "Low";
+                                    const avgSize =
+                                      data.totalUSD / data.addresses.size;
+                                    const overallProfitability =
+                                      data.totalUSD > 0
+                                        ? data.totalPnl / data.totalUSD
+                                        : 0;
+                                    const longBias =
+                                      data.longCount / data.totalCount;
+                                    const avgLeverage =
+                                      data.longUSD + data.shortUSD > 0
+                                        ? (data.longSize *
+                                            data.avgLongEntryPrice +
+                                            data.shortSize *
+                                              data.avgShortEntryPrice) /
+                                          (data.longUSD + data.shortUSD)
+                                        : 1;
+
+                                    // Decision logic
+                                    if (
+                                      conviction === "Low" ||
+                                      avgSize < 1000
+                                    ) {
+                                      return (
+                                        <span className="text-gray-700 dark:text-gray-300">
+                                          <strong>⚠️ AVOID:</strong> Too few
+                                          traders or small positions. Not
+                                          reliable enough to follow.
+                                        </span>
+                                      );
+                                    }
+
+                                    if (overallProfitability < -0.05) {
+                                      return (
+                                        <span className="text-red-700 dark:text-red-300">
+                                          <strong>🚫 AVOID:</strong> Traders are
+                                          losing money significantly. Don't
+                                          follow losing strategies.
+                                        </span>
+                                      );
+                                    }
+
+                                    if (avgLeverage >= 15) {
+                                      return (
+                                        <span className="text-orange-700 dark:text-orange-300">
+                                          <strong>⚠️ RISKY:</strong> Very high
+                                          leverage positions. Only follow if you
+                                          can handle extreme risk.
+                                        </span>
+                                      );
+                                    }
+
+                                    if (
+                                      longBias >= 0.7 &&
+                                      overallProfitability > 0.02
+                                    ) {
+                                      return (
+                                        <span className="text-green-700 dark:text-green-300">
+                                          <strong>✅ BUY SIGNAL:</strong> Most
+                                          traders are buying and profitable.
+                                          Strong buy signal with{" "}
+                                          {conviction.toLowerCase()} confidence.
+                                        </span>
+                                      );
+                                    }
+
+                                    if (
+                                      longBias <= 0.3 &&
+                                      overallProfitability > 0.02
+                                    ) {
+                                      return (
+                                        <span className="text-red-700 dark:text-red-300">
+                                          <strong>✅ SELL SIGNAL:</strong> Most
+                                          traders are selling and profitable.
+                                          Strong sell signal with{" "}
+                                          {conviction.toLowerCase()} confidence.
+                                        </span>
+                                      );
+                                    }
+
+                                    if (overallProfitability > 0.02) {
+                                      const direction =
+                                        longBias > 0.5 ? "BUY" : "SELL";
+                                      return (
+                                        <span className="text-blue-700 dark:text-blue-300">
+                                          <strong>
+                                            📊 MODERATE {direction}:
+                                          </strong>{" "}
+                                          Traders are profitable but not
+                                          overwhelming consensus. Consider{" "}
+                                          {direction.toLowerCase()}ing with
+                                          smaller position.
+                                        </span>
+                                      );
+                                    }
+
+                                    return (
+                                      <span className="text-gray-700 dark:text-gray-300">
+                                        <strong>⏳ WAIT:</strong> Mixed signals
+                                        or flat performance. Wait for clearer
+                                        direction before trading.
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -2340,13 +3096,19 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
-                                          🚀 STRONG LONG - {discount}% Discount
-                                          ({confidence} Confidence)
+                                          🚀 BUY NOW - Great Entry Price
                                         </Badge>
                                         <div className="text-xs text-green-700 dark:text-green-300">
-                                          {data.longCount} addresses are long &
-                                          profitable. Current price is{" "}
-                                          {discount}% below their avg entry.
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.longCount} traders are buying{" "}
+                                          {asset} and making money. The price is{" "}
+                                          {discount}% cheaper than where they
+                                          bought.
+                                          <br />
+                                          <strong>My suggestion:</strong> This
+                                          is a good time to BUY. You're getting
+                                          a discount compared to profitable
+                                          traders.
                                         </div>
                                       </div>
                                     );
@@ -2362,35 +3124,87 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
-                                          📈 FOLLOW LONG - {premium}% Premium (
-                                          {confidence} Confidence)
+                                          📈 CONSIDER BUYING - Uptrend
                                         </Badge>
                                         <div className="text-xs text-blue-700 dark:text-blue-300">
-                                          {data.longCount} addresses are long &
-                                          profitable. Price is {premium}% above
-                                          their avg entry but trend is strong.
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.longCount} traders are buying{" "}
+                                          {asset} and making money. Price went
+                                          up {premium}% since they bought.
+                                          <br />
+                                          <strong>My suggestion:</strong> Still
+                                          good to BUY, but you're paying more
+                                          than the profitable traders did.
                                         </div>
                                       </div>
                                     );
                                   }
-                                  // If long positions are losing money, be cautious
+                                  // If long positions are losing money - FOLLOW THE TRADERS
                                   else if (longProfitability < 0) {
                                     const loss = Math.abs(
                                       longProfitability * 100,
                                     ).toFixed(1);
-                                    return (
-                                      <div className="space-y-2">
-                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
-                                          ⚠️ CAUTION - Long Positions Losing (
-                                          {confidence} Confidence)
-                                        </Badge>
-                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
-                                          {data.longCount} addresses are long
-                                          but down {loss}%. Wait for better
-                                          entry or consider their exit.
+                                    // Check if current price is better than their average entry for buying
+                                    const priceAdvantage =
+                                      data.currentPrice < data.avgLongEntryPrice
+                                        ? (
+                                            ((data.avgLongEntryPrice -
+                                              data.currentPrice) /
+                                              data.avgLongEntryPrice) *
+                                            100
+                                          ).toFixed(1)
+                                        : null;
+
+                                    if (
+                                      priceAdvantage &&
+                                      parseFloat(priceAdvantage) > 2
+                                    ) {
+                                      return (
+                                        <div className="space-y-2">
+                                          <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
+                                            🚀 FOLLOW THE LONGS - Better Entry
+                                          </Badge>
+                                          <div className="text-xs text-green-700 dark:text-green-300">
+                                            <strong>What's happening:</strong>{" "}
+                                            {data.longCount} top traders are
+                                            buying {asset}. Even though they're
+                                            currently losing {loss}%, the
+                                            current price is {priceAdvantage}%
+                                            lower than their average entry.
+                                            <br />
+                                            <strong>My suggestion:</strong>{" "}
+                                            EXCELLENT TIME TO BUY. You can enter
+                                            at a better price than these
+                                            successful traders. Follow their
+                                            strategy with better timing.
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
+                                      );
+                                    } else {
+                                      return (
+                                        <div className="space-y-2">
+                                          <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
+                                            🚀 FOLLOW THE LONGS - Wait for
+                                            Better Entry
+                                          </Badge>
+                                          <div className="text-xs text-blue-700 dark:text-blue-300">
+                                            <strong>What's happening:</strong>{" "}
+                                            {data.longCount} top traders are
+                                            buying {asset} but currently losing{" "}
+                                            {loss}%. Current price is close to
+                                            their entry.
+                                            <br />
+                                            <strong>My suggestion:</strong>{" "}
+                                            These traders are betting on a price
+                                            rise. Wait for price to drop below $
+                                            {formatPrice(
+                                              data.avgLongEntryPrice,
+                                            )}{" "}
+                                            to get a better buy entry than them.
+                                          </div>
+                                        </div>
+                                      );
+                                    }
                                   }
                                 }
 
@@ -2407,13 +3221,19 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
-                                          📉 STRONG SHORT - {premium}% Premium (
-                                          {confidence} Confidence)
+                                          📉 SELL NOW - Great Short Entry
                                         </Badge>
                                         <div className="text-xs text-red-700 dark:text-red-300">
-                                          {data.shortCount} addresses are short
-                                          & profitable. Current price is{" "}
-                                          {premium}% above their avg entry.
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.shortCount} traders are selling{" "}
+                                          {asset} and making money. Price is{" "}
+                                          {premium}% higher than where they
+                                          sold.
+                                          <br />
+                                          <strong>My suggestion:</strong> This
+                                          is a good time to SELL/SHORT. You can
+                                          sell at a higher price than profitable
+                                          traders.
                                         </div>
                                       </div>
                                     );
@@ -2429,35 +3249,92 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
-                                          📊 FOLLOW SHORT - {discount}% Below
-                                          Entry ({confidence} Confidence)
+                                          📊 CONSIDER SELLING - Downtrend
                                         </Badge>
                                         <div className="text-xs text-orange-700 dark:text-orange-300">
-                                          {data.shortCount} addresses are short
-                                          & profitable. Price dropped {discount}
-                                          % below their entry, trend continues.
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.shortCount} traders are selling{" "}
+                                          {asset} and making money. Price
+                                          dropped {discount}% since they sold.
+                                          <br />
+                                          <strong>My suggestion:</strong> Still
+                                          good to SELL/SHORT, but price already
+                                          went down from where profitable
+                                          traders sold.
                                         </div>
                                       </div>
                                     );
                                   }
-                                  // If short positions are losing money
+                                  // If short positions are losing money - FOLLOW THE TRADERS
                                   else if (shortProfitability < 0) {
                                     const loss = Math.abs(
                                       shortProfitability * 100,
                                     ).toFixed(1);
-                                    return (
-                                      <div className="space-y-2">
-                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
-                                          ⚠️ CAUTION - Short Positions Losing (
-                                          {confidence} Confidence)
-                                        </Badge>
-                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
-                                          {data.shortCount} addresses are short
-                                          but down {loss}%. Consider if they
-                                          might exit soon.
+                                    // Check if current price is better than their average entry for shorting
+                                    const priceAdvantage =
+                                      data.currentPrice >
+                                      data.avgShortEntryPrice
+                                        ? (
+                                            ((data.currentPrice -
+                                              data.avgShortEntryPrice) /
+                                              data.avgShortEntryPrice) *
+                                            100
+                                          ).toFixed(1)
+                                        : null;
+
+                                    if (
+                                      priceAdvantage &&
+                                      parseFloat(priceAdvantage) > 2
+                                    ) {
+                                      return (
+                                        <div className="space-y-2">
+                                          <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
+                                            📉 FOLLOW THE SHORTS - Better Entry
+                                          </Badge>
+                                          <div className="text-xs text-red-700 dark:text-red-300">
+                                            <strong>What's happening:</strong>{" "}
+                                            {data.shortCount} top traders are
+                                            shorting {asset}. Even though
+                                            they're currently losing {loss}%,
+                                            the current price is{" "}
+                                            {priceAdvantage}% higher than their
+                                            average entry.
+                                            <br />
+                                            <strong>My suggestion:</strong> GOOD
+                                            TIME TO SHORT. You can enter at a
+                                            better price than these successful
+                                            traders. Follow their strategy with
+                                            better timing.
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
+                                      );
+                                    } else {
+                                      return (
+                                        <div className="space-y-2">
+                                          <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
+                                            📉 FOLLOW THE SHORTS - Wait for
+                                            Better Entry
+                                          </Badge>
+                                          <div className="text-xs text-orange-700 dark:text-orange-300">
+                                            <strong>What's happening:</strong>{" "}
+                                            {data.shortCount} top traders are
+                                            shorting {asset} but currently
+                                            losing {loss}%. Current price is
+                                            close to their entry.
+                                            <br />
+                                            <strong>My suggestion:</strong>{" "}
+                                            These traders are betting on a price
+                                            drop. Wait for price to go higher
+                                            than $
+                                            {formatPrice(
+                                              data.avgShortEntryPrice,
+                                            )}{" "}
+                                            to get a better short entry than
+                                            them.
+                                          </div>
+                                        </div>
+                                      );
+                                    }
                                   }
                                 }
 
@@ -2471,17 +3348,22 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
-                                          📊 LONG EDGE - Longs Outperforming (
-                                          {confidence} Confidence)
+                                          📊 LEAN TOWARDS BUYING
                                         </Badge>
                                         <div className="text-xs text-green-700 dark:text-green-300">
-                                          Balanced positions but longs are{" "}
+                                          <strong>What's happening:</strong>{" "}
+                                          Equal number of buyers and sellers,
+                                          but buyers are making{" "}
                                           {(longProfitability * 100).toFixed(1)}
-                                          % profitable vs shorts{" "}
+                                          % profit while sellers are making{" "}
                                           {(shortProfitability * 100).toFixed(
                                             1,
                                           )}
                                           %.
+                                          <br />
+                                          <strong>My suggestion:</strong>{" "}
+                                          Slightly favor BUYING since buyers are
+                                          doing better.
                                         </div>
                                       </div>
                                     );
@@ -2492,17 +3374,22 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
-                                          📊 SHORT EDGE - Shorts Outperforming (
-                                          {confidence} Confidence)
+                                          📊 LEAN TOWARDS SELLING
                                         </Badge>
                                         <div className="text-xs text-red-700 dark:text-red-300">
-                                          Balanced positions but shorts are{" "}
+                                          <strong>What's happening:</strong>{" "}
+                                          Equal number of buyers and sellers,
+                                          but sellers are making{" "}
                                           {(shortProfitability * 100).toFixed(
                                             1,
                                           )}
-                                          % profitable vs longs{" "}
+                                          % profit while buyers are making{" "}
                                           {(longProfitability * 100).toFixed(1)}
                                           %.
+                                          <br />
+                                          <strong>My suggestion:</strong>{" "}
+                                          Slightly favor SELLING since sellers
+                                          are doing better.
                                         </div>
                                       </div>
                                     );
@@ -2510,14 +3397,17 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900 dark:text-gray-200">
-                                          ⚖️ BALANCED - No Clear Edge (
-                                          {confidence} Confidence)
+                                          ⚖️ WAIT FOR CLEAR SIGNAL
                                         </Badge>
                                         <div className="text-xs text-gray-700 dark:text-gray-300">
-                                          {data.longCount} long,{" "}
-                                          {data.shortCount} short. Both sides
-                                          showing similar performance. Wait for
-                                          clearer signal.
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.longCount} traders buying,{" "}
+                                          {data.shortCount} selling. Both sides
+                                          performing similarly.
+                                          <br />
+                                          <strong>My suggestion:</strong> DON'T
+                                          TRADE yet. Wait until one side clearly
+                                          starts winning.
                                         </div>
                                       </div>
                                     );
@@ -2536,13 +3426,19 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
-                                          📈 LONG OPPORTUNITY - {discount}%
-                                          Discount ({confidence} Confidence)
+                                          📈 GOOD BUY OPPORTUNITY
                                         </Badge>
                                         <div className="text-xs text-blue-700 dark:text-blue-300">
-                                          {data.longCount} addresses favor long,
-                                          profitable, and price is {discount}%
-                                          below their avg entry.
+                                          <strong>What's happening:</strong>{" "}
+                                          More traders are buying (
+                                          {data.longCount} vs {data.shortCount})
+                                          and they're making money. Price is{" "}
+                                          {discount}% cheaper than their average
+                                          buy price.
+                                          <br />
+                                          <strong>My suggestion:</strong> Good
+                                          time to BUY. You get a discount
+                                          compared to profitable buyers.
                                         </div>
                                       </div>
                                     );
@@ -2550,13 +3446,17 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
-                                          📈 LEAN LONG - Following Profitable
-                                          Trend ({confidence} Confidence)
+                                          📈 FOLLOW THE BUYERS
                                         </Badge>
                                         <div className="text-xs text-blue-700 dark:text-blue-300">
-                                          {data.longCount} addresses lean long
-                                          and are profitable. Consider following
-                                          their lead.
+                                          <strong>What's happening:</strong>{" "}
+                                          More traders prefer buying (
+                                          {data.longCount} vs {data.shortCount})
+                                          and they're making money.
+                                          <br />
+                                          <strong>My suggestion:</strong>{" "}
+                                          Consider BUYING to follow the
+                                          profitable majority.
                                         </div>
                                       </div>
                                     );
@@ -2572,13 +3472,19 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
-                                          📉 SHORT OPPORTUNITY - {premium}%
-                                          Premium ({confidence} Confidence)
+                                          📉 GOOD SELL OPPORTUNITY
                                         </Badge>
                                         <div className="text-xs text-orange-700 dark:text-orange-300">
-                                          {data.shortCount} addresses favor
-                                          short, profitable, and price is{" "}
-                                          {premium}% above their avg entry.
+                                          <strong>What's happening:</strong>{" "}
+                                          More traders are selling (
+                                          {data.shortCount} vs {data.longCount})
+                                          and they're making money. Price is{" "}
+                                          {premium}% higher than their average
+                                          sell price.
+                                          <br />
+                                          <strong>My suggestion:</strong> Good
+                                          time to SELL. You get a premium
+                                          compared to profitable sellers.
                                         </div>
                                       </div>
                                     );
@@ -2586,13 +3492,17 @@ const PositionTable = ({
                                     return (
                                       <div className="space-y-2">
                                         <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
-                                          📉 LEAN SHORT - Following Profitable
-                                          Trend ({confidence} Confidence)
+                                          📉 FOLLOW THE SELLERS
                                         </Badge>
                                         <div className="text-xs text-orange-700 dark:text-orange-300">
-                                          {data.shortCount} addresses lean short
-                                          and are profitable. Consider following
-                                          their lead.
+                                          <strong>What's happening:</strong>{" "}
+                                          More traders prefer selling (
+                                          {data.shortCount} vs {data.longCount})
+                                          and they're making money.
+                                          <br />
+                                          <strong>My suggestion:</strong>{" "}
+                                          Consider SELLING to follow the
+                                          profitable majority.
                                         </div>
                                       </div>
                                     );
@@ -2603,13 +3513,16 @@ const PositionTable = ({
                                 return (
                                   <div className="space-y-2">
                                     <Badge className="bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900 dark:text-gray-200">
-                                      🤔 INSUFFICIENT DATA - ({confidence}{" "}
-                                      Confidence)
+                                      🤔 NOT ENOUGH DATA
                                     </Badge>
                                     <div className="text-xs text-gray-700 dark:text-gray-300">
-                                      Need more data or clearer signals. Monitor
-                                      for position changes and profitability
-                                      trends.
+                                      <strong>What's happening:</strong> Not
+                                      enough trading activity or unclear signals
+                                      from traders.
+                                      <br />
+                                      <strong>My suggestion:</strong> WAIT and
+                                      watch. Don't trade until you see clearer
+                                      patterns.
                                     </div>
                                   </div>
                                 );
