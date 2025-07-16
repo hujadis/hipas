@@ -62,9 +62,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get Resend API key from environment
-    console.log("🔑 Checking for RESEND_API_KEY...");
+    // Get Resend API key from environment variables
+    console.log("🔑 Checking for Resend API key...");
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
+
     console.log(`🔐 RESEND_API_KEY ${resendApiKey ? "found" : "NOT FOUND"}`);
 
     // List all environment variables for debugging (without values)
@@ -74,38 +75,21 @@ Deno.serve(async (req) => {
     );
 
     if (!resendApiKey) {
-      console.warn(
-        "⚠️ RESEND_API_KEY not found - logging email instead of sending",
-      );
-
-      // Log the email instead of sending it
-      const emailData = {
-        to: Array.isArray(to) ? to : [to],
-        subject,
-        html,
-        text,
-        type,
-        timestamp: new Date().toISOString(),
-        status: "logged",
-      };
-
-      console.log("📧 EMAIL LOGGED (no API key):", emailData);
-
+      console.error("❌ Resend API key not found in environment variables");
       return new Response(
         JSON.stringify({
-          success: true,
-          message: "Email logged successfully (RESEND_API_KEY not configured)",
-          data: emailData,
+          error: "Resend API key not configured",
+          details: "RESEND_API_KEY environment variable is missing",
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 200,
+          status: 500,
         },
       );
     }
 
-    // Send email using Resend API
-    console.log("📤 Attempting to send email via Resend...");
+    // Send email using Resend API directly
+    console.log("📤 Attempting to send email via Resend API...");
 
     const emailPayload = {
       from: "Hyperliquid Tracker <onboarding@resend.dev>",
@@ -113,6 +97,7 @@ Deno.serve(async (req) => {
       subject,
       html,
       text,
+      tags: [{ name: "source", value: "hyperliquid-tracker" }],
     };
 
     console.log("📦 Email payload prepared:", {
@@ -121,14 +106,15 @@ Deno.serve(async (req) => {
       subject: emailPayload.subject,
       hasHtml: !!emailPayload.html,
       hasText: !!emailPayload.text,
+      tags: emailPayload.tags,
     });
 
     console.log("🌐 Making request to Resend API...");
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${resendApiKey}`,
         "Content-Type": "application/json",
+        Authorization: `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify(emailPayload),
     });
@@ -163,7 +149,7 @@ Deno.serve(async (req) => {
 
       return new Response(
         JSON.stringify({
-          error: "Failed to send email",
+          error: "Failed to send email via Resend API",
           details: responseData,
           status: response.status,
         }),
@@ -174,12 +160,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log("✅ Email sent successfully via Resend:", responseData);
+    console.log("✅ Email sent successfully via Resend API:", responseData);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Email sent successfully",
+        message: "Email sent successfully via Resend API",
         data: {
           id: responseData.id,
           to: emailPayload.to,

@@ -199,14 +199,40 @@ export const upsertTrackedPosition = async (
 ): Promise<TrackedPosition | null> => {
   const now = new Date().toISOString();
 
+  console.log("🔍 UPSERT POSITION - Starting process:", {
+    position_key: position.position_key,
+    address: position.address,
+    asset: position.asset,
+    side: position.side,
+    size: position.size,
+    entry_price: position.entry_price,
+    timestamp: now,
+  });
+
   // Check if this is a new position by looking for existing position
-  const { data: existingPosition } = await supabase
+  const { data: existingPosition, error: checkError } = await supabase
     .from("tracked_positions")
     .select("*")
     .eq("position_key", position.position_key)
     .single();
 
+  if (checkError && checkError.code !== "PGRST116") {
+    console.error("❌ Error checking existing position:", checkError);
+  }
+
   const isNewPosition = !existingPosition;
+  console.log(
+    `📊 Position status: ${isNewPosition ? "NEW POSITION" : "EXISTING POSITION"}`,
+  );
+
+  if (existingPosition) {
+    console.log("📋 Existing position found:", {
+      id: existingPosition.id,
+      created_at: existingPosition.created_at,
+      status: existingPosition.status,
+      last_updated: existingPosition.last_updated,
+    });
+  }
 
   const { data, error } = await supabase
     .from("tracked_positions")
@@ -226,45 +252,162 @@ export const upsertTrackedPosition = async (
     .single();
 
   if (error) {
-    console.error("Error upserting tracked position:", error);
+    console.error("❌ Error upserting tracked position:", error);
     return null;
   }
 
-  // Send email notification for new positions
+  console.log("✅ Position upserted successfully:", {
+    id: data.id,
+    position_key: data.position_key,
+    status: data.status,
+    is_active: data.is_active,
+  });
+
+  // CRITICAL: Send email notification for new positions - GUARANTEED EXECUTION
   if (isNewPosition && data) {
-    console.log("🚨 New position detected, sending notification...");
+    console.log(
+      "🚨🚨🚨 NEW POSITION DETECTED - INITIATING EMAIL NOTIFICATION PROCESS 🚨🚨🚨",
+    );
+    console.log("📧 New position details for notification:", {
+      address: data.address,
+      asset: data.asset,
+      side: data.side,
+      size: data.size,
+      entry_price: data.entry_price,
+      position_key: data.position_key,
+      created_at: data.created_at,
+    });
 
     // Get wallet address info to check if notifications are enabled
-    const { data: walletInfo } = await supabase
+    console.log("🔍 Checking wallet notification settings...");
+    const { data: walletInfo, error: walletError } = await supabase
       .from("wallet_addresses")
       .select("alias, notifications_enabled")
       .eq("address", data.address)
       .single();
 
-    // Only send notification if notifications are enabled for this address
+    if (walletError) {
+      console.error("❌ Error fetching wallet info:", walletError);
+      console.log("⚠️ Proceeding with notification anyway (default enabled)");
+    }
+
+    console.log("📋 Wallet notification settings:", {
+      alias: walletInfo?.alias || "No alias",
+      notifications_enabled: walletInfo?.notifications_enabled,
+      will_send_notification: walletInfo?.notifications_enabled !== false,
+    });
+
+    // Only send notification if notifications are enabled for this address (default: enabled)
     if (walletInfo?.notifications_enabled !== false) {
-      try {
-        await sendPositionNotification(
-          data.address,
-          data.asset,
-          data.side as "LONG" | "SHORT",
-          data.size,
-          data.entry_price,
-          walletInfo?.alias,
-        );
-        console.log("✅ Position notification sent successfully");
-      } catch (notificationError) {
+      console.log("✅ NOTIFICATIONS ENABLED - SENDING EMAIL NOW...");
+
+      // MULTIPLE ATTEMPTS TO ENSURE EMAIL IS SENT
+      let emailSent = false;
+      let attemptCount = 0;
+      const maxAttempts = 3;
+
+      while (!emailSent && attemptCount < maxAttempts) {
+        attemptCount++;
+        console.log(`📧 EMAIL ATTEMPT ${attemptCount}/${maxAttempts}`);
+
+        try {
+          const notificationResult = await sendPositionNotification(
+            data.address,
+            data.asset,
+            data.side as "LONG" | "SHORT",
+            data.size,
+            data.entry_price,
+            walletInfo?.alias,
+          );
+
+          if (notificationResult) {
+            emailSent = true;
+            console.log(
+              `🎉🎉🎉 EMAIL SENT SUCCESSFULLY ON ATTEMPT ${attemptCount} 🎉🎉🎉`,
+            );
+            console.log("📧 Email notification details:", {
+              address: data.address,
+              asset: data.asset,
+              side: data.side,
+              size: data.size,
+              entry_price: data.entry_price,
+              alias: walletInfo?.alias,
+              attempt: attemptCount,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            console.warn(
+              `⚠️ Email sending returned false on attempt ${attemptCount}`,
+            );
+          }
+        } catch (notificationError) {
+          console.error(
+            `❌ ATTEMPT ${attemptCount} FAILED - Email notification error:`,
+            {
+              message: notificationError.message,
+              stack: notificationError.stack,
+              error: notificationError,
+            },
+          );
+
+          if (attemptCount < maxAttempts) {
+            console.log(
+              `🔄 Retrying in 2 seconds... (attempt ${attemptCount + 1}/${maxAttempts})`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        }
+      }
+
+      if (!emailSent) {
         console.error(
-          "❌ Failed to send position notification:",
-          notificationError,
+          "💥💥💥 CRITICAL: FAILED TO SEND EMAIL AFTER ALL ATTEMPTS 💥💥💥",
         );
-        // Don't fail the position tracking if notification fails
+        console.error("📧 Failed email details:", {
+          address: data.address,
+          asset: data.asset,
+          side: data.side,
+          size: data.size,
+          entry_price: data.entry_price,
+          alias: walletInfo?.alias,
+          total_attempts: attemptCount,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Log the failure but don't fail the position tracking
+        try {
+          await logNotification({
+            address: data.address,
+            asset: data.asset,
+            side: data.side,
+            size: data.size,
+            entry_price: data.entry_price,
+            notification_sent: false,
+          });
+        } catch (logError) {
+          console.error("❌ Failed to log notification failure:", logError);
+        }
       }
     } else {
-      console.log("🔕 Notifications disabled for this address, skipping email");
+      console.log(
+        "🔕 NOTIFICATIONS DISABLED for this address - skipping email",
+      );
+      console.log("📧 Skipped notification details:", {
+        address: data.address,
+        asset: data.asset,
+        side: data.side,
+        notifications_enabled: walletInfo?.notifications_enabled,
+        reason: "notifications_disabled",
+        timestamp: new Date().toISOString(),
+      });
     }
+  } else if (!isNewPosition) {
+    console.log("📝 EXISTING POSITION UPDATED - No email notification needed");
+  } else {
+    console.log("⚠️ No data returned from upsert - cannot send notification");
   }
 
+  console.log("🏁 UPSERT POSITION - Process completed");
   return data;
 };
 
