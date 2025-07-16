@@ -92,44 +92,119 @@ export type Database = {
         }
         Relationships: []
       }
-      tracked_positions: {
+      position_history: {
         Row: {
           address: string
           asset: string
+          closed_at: string | null
           created_at: string | null
           entry_price: number
+          exit_price: number | null
+          holding_duration_minutes: number | null
           id: string
-          is_active: boolean | null
           leverage: number | null
-          position_key: string | null
+          opened_at: string
+          pnl: number | null
+          pnl_percentage: number | null
+          position_key: string
           side: string
           size: number
+          status: string | null
           updated_at: string | null
         }
         Insert: {
           address: string
           asset: string
+          closed_at?: string | null
           created_at?: string | null
           entry_price: number
+          exit_price?: number | null
+          holding_duration_minutes?: number | null
           id?: string
-          is_active?: boolean | null
           leverage?: number | null
-          position_key?: string | null
+          opened_at: string
+          pnl?: number | null
+          pnl_percentage?: number | null
+          position_key: string
           side: string
           size: number
+          status?: string | null
           updated_at?: string | null
         }
         Update: {
           address?: string
           asset?: string
+          closed_at?: string | null
           created_at?: string | null
           entry_price?: number
+          exit_price?: number | null
+          holding_duration_minutes?: number | null
           id?: string
-          is_active?: boolean | null
           leverage?: number | null
-          position_key?: string | null
+          opened_at?: string
+          pnl?: number | null
+          pnl_percentage?: number | null
+          position_key?: string
           side?: string
           size?: number
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      tracked_positions: {
+        Row: {
+          address: string
+          asset: string
+          closed_at: string | null
+          created_at: string | null
+          entry_price: number
+          final_pnl: number | null
+          holding_duration_minutes: number | null
+          id: string
+          is_active: boolean | null
+          last_updated: string | null
+          leverage: number | null
+          position_key: string
+          side: string
+          size: number
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          address: string
+          asset: string
+          closed_at?: string | null
+          created_at?: string | null
+          entry_price: number
+          final_pnl?: number | null
+          holding_duration_minutes?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_updated?: string | null
+          leverage?: number | null
+          position_key: string
+          side: string
+          size: number
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string
+          asset?: string
+          closed_at?: string | null
+          created_at?: string | null
+          entry_price?: number
+          final_pnl?: number | null
+          holding_duration_minutes?: number | null
+          id?: string
+          is_active?: boolean | null
+          last_updated?: string | null
+          leverage?: number | null
+          position_key?: string
+          side?: string
+          size?: number
+          status?: string | null
           updated_at?: string | null
         }
         Relationships: []

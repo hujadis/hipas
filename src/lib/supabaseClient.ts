@@ -33,3 +33,12 @@ export type NotificationEmail =
 
 export type HiddenPosition =
   Database["public"]["Tables"]["hidden_positions"]["Row"];
+
+export type PositionHistory =
+  Database["public"]["Tables"]["position_history"]["Row"];
+
+export type PositionHistoryInsert =
+  Database["public"]["Tables"]["position_history"]["Insert"];
+
+export type PositionHistoryUpdate =
+  Database["public"]["Tables"]["position_history"]["Update"];

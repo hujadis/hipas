@@ -4,6 +4,9 @@ import {
   TrackedPosition,
   NotificationLog,
   NotificationEmail,
+  PositionHistory,
+  PositionHistoryInsert,
+  PositionHistoryUpdate,
 } from "./supabaseClient";
 
 // Wallet Address Management
@@ -117,11 +120,21 @@ export const removeWalletAddress = async (
 };
 
 // Position Tracking
-export const getTrackedPositions = async (): Promise<TrackedPosition[]> => {
-  const { data, error } = await supabase
-    .from("tracked_positions")
-    .select("*")
-    .eq("is_active", true);
+export const getTrackedPositions = async (
+  status?: string,
+): Promise<TrackedPosition[]> => {
+  let query = supabase.from("tracked_positions").select("*");
+
+  if (status) {
+    query = query.eq("status", status);
+  } else {
+    // Get active positions (either status is 'active' or 'new', and is_active is true or null)
+    query = query
+      .or("status.eq.active,status.eq.new")
+      .or("is_active.eq.true,is_active.is.null");
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching tracked positions:", error);
@@ -131,18 +144,73 @@ export const getTrackedPositions = async (): Promise<TrackedPosition[]> => {
   return data || [];
 };
 
+export const getNewPositions = async (
+  hours: number = 1,
+): Promise<TrackedPosition[]> => {
+  const cutoffTime = new Date();
+  cutoffTime.setHours(cutoffTime.getHours() - hours);
+
+  const { data, error } = await supabase
+    .from("tracked_positions")
+    .select("*")
+    .eq("status", "new")
+    .gte("created_at", cutoffTime.toISOString())
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching new positions:", error);
+    return [];
+  }
+
+  return data || [];
+};
+
+export const getClosedPositions = async (): Promise<TrackedPosition[]> => {
+  const { data, error } = await supabase
+    .from("tracked_positions")
+    .select("*")
+    .eq("status", "closed")
+    .order("closed_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching closed positions:", error);
+    return [];
+  }
+
+  return data || [];
+};
+
+export const getAllTrackedPositions = async (): Promise<TrackedPosition[]> => {
+  const { data, error } = await supabase
+    .from("tracked_positions")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching all tracked positions:", error);
+    return [];
+  }
+
+  return data || [];
+};
+
 export const upsertTrackedPosition = async (
   position: Omit<TrackedPosition, "id" | "created_at">,
 ): Promise<TrackedPosition | null> => {
+  const now = new Date().toISOString();
+
   const { data, error } = await supabase
     .from("tracked_positions")
     .upsert(
       {
         ...position,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
+        last_updated: now,
+        status: position.status || "active",
+        is_active: position.status !== "closed", // Ensure is_active is consistent with status
       },
       {
-        onConflict: "address,asset",
+        onConflict: "position_key",
       },
     )
     .select()
@@ -156,15 +224,89 @@ export const upsertTrackedPosition = async (
   return data;
 };
 
+export const closeTrackedPosition = async (
+  positionKey: string,
+  finalPnl: number,
+  exitPrice: number,
+): Promise<TrackedPosition | null> => {
+  const now = new Date();
+
+  // First get the existing position to calculate holding duration
+  const { data: existingPosition } = await supabase
+    .from("tracked_positions")
+    .select("*")
+    .eq("position_key", positionKey)
+    .single();
+
+  if (!existingPosition) {
+    console.error("Position not found for closing:", positionKey);
+    return null;
+  }
+
+  const createdAt = new Date(existingPosition.created_at || now);
+  const holdingDurationMinutes = Math.floor(
+    (now.getTime() - createdAt.getTime()) / (1000 * 60),
+  );
+
+  const { data, error } = await supabase
+    .from("tracked_positions")
+    .update({
+      status: "closed",
+      closed_at: now.toISOString(),
+      final_pnl: finalPnl,
+      holding_duration_minutes: holdingDurationMinutes,
+      is_active: false,
+      last_updated: now.toISOString(),
+    })
+    .eq("position_key", positionKey)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error closing tracked position:", error);
+    return null;
+  }
+
+  // Also add to position history
+  await addToPositionHistory({
+    address: existingPosition.address,
+    asset: existingPosition.asset,
+    size: existingPosition.size,
+    entry_price: existingPosition.entry_price,
+    exit_price: exitPrice,
+    side: existingPosition.side,
+    leverage: existingPosition.leverage,
+    pnl: finalPnl,
+    pnl_percentage:
+      existingPosition.entry_price > 0
+        ? (finalPnl /
+            (Math.abs(existingPosition.size) * existingPosition.entry_price)) *
+          100
+        : 0,
+    holding_duration_minutes: holdingDurationMinutes,
+    opened_at: existingPosition.created_at || now.toISOString(),
+    closed_at: now.toISOString(),
+    status: "closed",
+    position_key: positionKey,
+  });
+
+  return data;
+};
+
 export const markPositionInactive = async (
   address: string,
   asset: string,
 ): Promise<boolean> => {
+  const positionKey = `${address}-${asset}`;
   const { error } = await supabase
     .from("tracked_positions")
-    .update({ is_active: false })
-    .eq("address", address)
-    .eq("asset", asset);
+    .update({
+      is_active: false,
+      status: "closed",
+      closed_at: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+    })
+    .eq("position_key", positionKey);
 
   if (error) {
     console.error("Error marking position inactive:", error);
@@ -172,6 +314,103 @@ export const markPositionInactive = async (
   }
 
   return true;
+};
+
+// Position History Management
+export const getPositionHistory = async (
+  address?: string,
+): Promise<PositionHistory[]> => {
+  let query = supabase.from("position_history").select("*");
+
+  if (address) {
+    query = query.eq("address", address);
+  }
+
+  const { data, error } = await query.order("closed_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching position history:", error);
+    return [];
+  }
+
+  return data || [];
+};
+
+export const addToPositionHistory = async (
+  position: PositionHistoryInsert,
+): Promise<PositionHistory | null> => {
+  const { data, error } = await supabase
+    .from("position_history")
+    .insert(position)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error adding to position history:", error);
+    return null;
+  }
+
+  return data;
+};
+
+// Analytics Functions
+export const getPositionAnalytics = async (address?: string) => {
+  let query = supabase.from("tracked_positions").select("*");
+
+  if (address) {
+    query = query.eq("address", address);
+  }
+
+  const { data: positions, error } = await query;
+
+  if (error) {
+    console.error("Error fetching position analytics:", error);
+    return null;
+  }
+
+  const activePositions = positions?.filter((p) => p.status === "active") || [];
+  const closedPositions = positions?.filter((p) => p.status === "closed") || [];
+  const newPositions =
+    positions?.filter((p) => {
+      if (p.status !== "new") return false;
+      const createdAt = new Date(p.created_at || "");
+      const oneHourAgo = new Date();
+      oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+      return createdAt > oneHourAgo;
+    }) || [];
+
+  const totalPnl = closedPositions.reduce(
+    (sum, p) => sum + (p.final_pnl || 0),
+    0,
+  );
+  const winningPositions = closedPositions.filter(
+    (p) => (p.final_pnl || 0) > 0,
+  );
+  const losingPositions = closedPositions.filter((p) => (p.final_pnl || 0) < 0);
+  const winRate =
+    closedPositions.length > 0
+      ? (winningPositions.length / closedPositions.length) * 100
+      : 0;
+
+  const avgHoldingTime =
+    closedPositions.length > 0
+      ? closedPositions.reduce(
+          (sum, p) => sum + (p.holding_duration_minutes || 0),
+          0,
+        ) / closedPositions.length
+      : 0;
+
+  return {
+    totalPositions: positions?.length || 0,
+    activePositions: activePositions.length,
+    closedPositions: closedPositions.length,
+    newPositions: newPositions.length,
+    totalPnl,
+    winRate,
+    avgHoldingTimeMinutes: avgHoldingTime,
+    winningPositions: winningPositions.length,
+    losingPositions: losingPositions.length,
+  };
 };
 
 // Notification Management
@@ -319,9 +558,12 @@ export const sendPositionNotification = async (
     };
 
     // Call Supabase Edge Function
-    const { data, error } = await supabase.functions.invoke("send-email", {
-      body: emailData,
-    });
+    const { data, error } = await supabase.functions.invoke(
+      "supabase-functions-send-email",
+      {
+        body: emailData,
+      },
+    );
 
     if (error) {
       console.error("Error calling send-email function:", error);
@@ -461,9 +703,12 @@ export const sendTestNotification = async (): Promise<boolean> => {
     };
 
     // Call Supabase Edge Function
-    const { data, error } = await supabase.functions.invoke("send-email", {
-      body: testEmailData,
-    });
+    const { data, error } = await supabase.functions.invoke(
+      "supabase-functions-send-email",
+      {
+        body: testEmailData,
+      },
+    );
 
     if (error) {
       console.error("Error calling send-email function:", error);

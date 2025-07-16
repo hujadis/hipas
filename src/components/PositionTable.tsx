@@ -29,15 +29,31 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from "@/components/ui/pagination";
-import { Clock, RefreshCw, Bell, Eye, EyeOff, Filter, X } from "lucide-react";
+import {
+  Clock,
+  RefreshCw,
+  Bell,
+  Eye,
+  EyeOff,
+  Filter,
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import {
   getTrackedPositions,
+  getNewPositions,
+  getClosedPositions,
+  getAllTrackedPositions,
   upsertTrackedPosition,
+  closeTrackedPosition,
   markPositionInactive,
   sendPositionNotification,
   getHiddenPositions,
   addHiddenPosition,
   removeHiddenPosition,
+  getPositionAnalytics,
 } from "@/lib/database";
 import { TrackedPosition } from "@/lib/supabaseClient";
 
@@ -75,7 +91,7 @@ interface PositionTableProps {
 const PositionTable = ({
   addresses = [],
   onRefresh = () => {},
-  refreshInterval: propRefreshInterval = 60,
+  refreshInterval: propRefreshInterval = 300,
 }: PositionTableProps) => {
   const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -98,6 +114,26 @@ const PositionTable = ({
   const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage] = useState<number>(10);
+  const [activeTab, setActiveTab] = useState<string>("active");
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [newPositions, setNewPositions] = useState<Position[]>([]);
+  const [closedPositions, setClosedPositions] = useState<Position[]>([]);
+  const [allPositions, setAllPositions] = useState<Position[]>([]);
+
+  // Separate pagination state for each tab
+  const [tabPagination, setTabPagination] = useState<Record<string, number>>({
+    active: 1,
+    new: 1,
+    closed: 1,
+    hidden: 1,
+    all: 1,
+  });
+
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof Position | null;
+    direction: "asc" | "desc";
+  }>({ key: null, direction: "asc" });
 
   const fetchCurrentPrices = async (
     assets: string[],
@@ -155,9 +191,22 @@ const PositionTable = ({
         return;
       }
 
-      // Load previously tracked positions in parallel
-      const [previouslyTracked] = await Promise.all([getTrackedPositions()]);
+      // Load previously tracked positions and analytics in parallel
+      const [
+        previouslyTracked,
+        analyticsData,
+        newPositionsData,
+        closedPositionsData,
+        allPositionsData,
+      ] = await Promise.all([
+        getTrackedPositions(),
+        getPositionAnalytics(),
+        getNewPositions(1),
+        getClosedPositions(),
+        getAllTrackedPositions(),
+      ]);
       setTrackedPositions(previouslyTracked);
+      setAnalytics(analyticsData);
 
       const allPositions: Position[] = [];
       const currentPositionKeys = new Set<string>();
@@ -243,23 +292,34 @@ const PositionTable = ({
 
                   // Check if this is a new position
                   const existingPosition = previouslyTracked.find(
-                    (p) =>
-                      p.address === addressObj.address && p.asset === asset,
+                    (p) => p.position_key === positionKey,
                   );
 
-                  if (
-                    !existingPosition &&
-                    (addressObj.notifications_enabled ?? true)
-                  ) {
-                    // Queue new position notification
-                    newPositionNotifications.push({
-                      address: addressObj.address,
-                      asset,
-                      side,
-                      size,
-                      entryPrice,
-                      alias: addressObj.alias,
-                    });
+                  let positionStatus = "active";
+                  if (!existingPosition) {
+                    positionStatus = "new";
+                    if (addressObj.notifications_enabled ?? true) {
+                      // Queue new position notification
+                      newPositionNotifications.push({
+                        address: addressObj.address,
+                        asset,
+                        side,
+                        size,
+                        entryPrice,
+                        alias: addressObj.alias,
+                      });
+                    }
+                  } else if (existingPosition.status === "new") {
+                    // Keep as new for 24 hours
+                    const createdAt = new Date(
+                      existingPosition.created_at || "",
+                    );
+                    const twentyFourHoursAgo = new Date();
+                    twentyFourHoursAgo.setHours(
+                      twentyFourHoursAgo.getHours() - 24,
+                    );
+                    positionStatus =
+                      createdAt > twentyFourHoursAgo ? "new" : "active";
                   }
 
                   // Queue position update
@@ -271,6 +331,8 @@ const PositionTable = ({
                     side,
                     leverage,
                     is_active: true,
+                    position_key: positionKey,
+                    status: positionStatus,
                   });
 
                   // Calculate PnL percentage
@@ -287,7 +349,7 @@ const PositionTable = ({
                     pnl: unrealizedPnl,
                     pnlPercentage: pnlPercentage,
                     liquidationPrice: liquidationPrice,
-                    address: `${addressObj.address.slice(0, 6)}...${addressObj.address.slice(-4)}`,
+                    address: addressObj.address,
                     alias: addressObj.alias,
                     color: addressObj.color,
                     openTime: undefined,
@@ -363,19 +425,114 @@ const PositionTable = ({
         };
       });
 
-      // Mark positions as inactive if they're no longer present (in background)
-      Promise.all(
-        previouslyTracked
-          .filter((trackedPos) => {
-            const positionKey = `${trackedPos.address}-${trackedPos.asset}`;
-            return !currentPositionKeys.has(positionKey);
-          })
-          .map((trackedPos) =>
-            markPositionInactive(trackedPos.address, trackedPos.asset),
-          ),
-      ).catch((error) => {
-        console.error("Error marking positions inactive:", error);
+      // Mark positions as closed if they're no longer present (in background)
+      const positionsToClose = previouslyTracked.filter((trackedPos) => {
+        return (
+          trackedPos.position_key &&
+          !currentPositionKeys.has(trackedPos.position_key) &&
+          (trackedPos.status === "active" || trackedPos.status === "new") &&
+          (trackedPos.is_active === true || trackedPos.is_active === null)
+        );
       });
+
+      // Close positions that are no longer active
+      if (positionsToClose.length > 0) {
+        console.log(
+          "🔄 Closing positions that are no longer active:",
+          positionsToClose.map((p) => p.position_key),
+        );
+        Promise.all(
+          positionsToClose.map(async (trackedPos) => {
+            if (trackedPos.position_key) {
+              // Calculate final PnL based on last known price
+              const currentPrice =
+                currentPrices.get(trackedPos.asset) || trackedPos.entry_price;
+              const finalPnl =
+                (currentPrice - trackedPos.entry_price) * trackedPos.size;
+              await closeTrackedPosition(
+                trackedPos.position_key,
+                finalPnl,
+                currentPrice,
+              );
+            }
+          }),
+        )
+          .then(() => {
+            // Refresh tracked positions after closing
+            console.log("✅ Successfully closed inactive positions");
+          })
+          .catch((error) => {
+            console.error("❌ Error closing positions:", error);
+          });
+      }
+
+      // Convert tracked positions to display format for other tabs
+      const convertTrackedToDisplay = (trackedPositions: any[]) => {
+        return trackedPositions.map((tp) => {
+          const currentPrice = currentPrices.get(tp.asset) || tp.entry_price;
+          const pnl = tp.final_pnl || (currentPrice - tp.entry_price) * tp.size;
+          const notionalValue = Math.abs(tp.size * tp.entry_price);
+          const pnlPercentage =
+            notionalValue > 0 ? (pnl / notionalValue) * 100 : 0;
+          const sizeUSD = Math.abs(tp.size * currentPrice) / (tp.leverage || 1);
+
+          // Find matching address info for alias and color
+          const addressInfo = addresses.find(
+            (addr) => addr.address === tp.address,
+          );
+
+          return {
+            asset: tp.asset,
+            size: tp.size,
+            entryPrice: tp.entry_price,
+            pnl,
+            pnlPercentage,
+            liquidationPrice: 0, // Not available for historical positions
+            address: tp.address,
+            alias: addressInfo?.alias,
+            color: addressInfo?.color,
+            openTime:
+              tp.status === "closed"
+                ? new Date(tp.closed_at || tp.created_at)
+                : undefined,
+            leverage: tp.leverage,
+            side: tp.side as "LONG" | "SHORT",
+            sizeUSD,
+            currentPrice,
+            positionKey: tp.position_key || `${tp.address}-${tp.asset}`,
+          };
+        });
+      };
+
+      // Filter positions by status for different tabs
+      const newPositionsFiltered = newPositionsData.filter(
+        (p) => p.status === "new",
+      );
+      const closedPositionsFiltered = closedPositionsData.filter(
+        (p) => p.status === "closed",
+      );
+      const historicalPositions = allPositionsData.filter(
+        (p) => p.status === "closed" || p.status === "new",
+      );
+
+      const convertedNewPositions =
+        convertTrackedToDisplay(newPositionsFiltered);
+      const convertedClosedPositions = convertTrackedToDisplay(
+        closedPositionsFiltered,
+      );
+
+      setNewPositions(convertedNewPositions);
+      setClosedPositions(convertedClosedPositions);
+
+      // For all positions, combine current active positions with historical ones
+      // Create a comprehensive list without premature deduplication
+      const allCombinedPositions = [
+        ...positionsWithUSD,
+        ...convertTrackedToDisplay(newPositionsFiltered),
+        ...convertTrackedToDisplay(closedPositionsFiltered),
+      ];
+
+      setAllPositions(allCombinedPositions);
 
       setPositions(positionsWithUSD);
       setLastRefreshed(new Date());
@@ -481,12 +638,60 @@ const PositionTable = ({
     }
   };
 
-  const getFilteredPositions = (includeHidden: boolean = false) => {
-    return positions.filter((position) => {
-      // Filter by hidden status
+  const getFilteredPositions = (
+    positionsList: Position[],
+    includeHidden: boolean = false,
+    showAllPositions: boolean = false,
+  ) => {
+    // Remove duplicates first by using position key - prioritize active positions over historical ones
+    const uniquePositions = positionsList.reduce((acc, position) => {
+      const existingIndex = acc.findIndex(
+        (p) => p.positionKey === position.positionKey,
+      );
+      if (existingIndex === -1) {
+        acc.push(position);
+      } else {
+        // If we find a duplicate, keep the one that's more current
+        // Priority: active positions > new positions > closed positions
+        const existing = acc[existingIndex];
+        const existingTracked = trackedPositions.find(
+          (tp) => tp.position_key === existing.positionKey,
+        );
+        const currentTracked = trackedPositions.find(
+          (tp) => tp.position_key === position.positionKey,
+        );
+
+        // Prioritize based on status and data freshness
+        const existingStatus = existingTracked?.status || "active";
+        const currentStatus = currentTracked?.status || "active";
+
+        // Keep active over new, new over closed
+        if (currentStatus === "active" && existingStatus !== "active") {
+          acc[existingIndex] = position;
+        } else if (currentStatus === "new" && existingStatus === "closed") {
+          acc[existingIndex] = position;
+        } else if (
+          currentStatus === existingStatus &&
+          position.currentPrice > 0 &&
+          existing.currentPrice === 0
+        ) {
+          acc[existingIndex] = position; // Replace with more current data
+        }
+      }
+      return acc;
+    }, [] as Position[]);
+
+    return uniquePositions.filter((position) => {
+      // Filter by hidden status - special handling for "All" tab
       const isHidden = hiddenPositions.has(position.positionKey);
-      if (includeHidden && !isHidden) return false;
-      if (!includeHidden && isHidden) return false;
+      if (showAllPositions) {
+        // For "All" tab, include both hidden and visible positions
+        // No filtering by hidden status
+      } else if (includeHidden && !isHidden) {
+        return false; // Hidden tab - only show hidden positions
+      } else if (!includeHidden && isHidden) {
+        return false; // Other tabs - exclude hidden positions
+      }
 
       // Filter by cryptocurrency
       if (selectedCrypto !== "all" && position.asset !== selectedCrypto) {
@@ -499,16 +704,20 @@ const PositionTable = ({
         return false;
       }
 
-      // Filter by trader
+      // Filter by trader - fix the logic to properly handle address filtering
       if (selectedTrader !== "all") {
-        const traderMatch =
-          position.alias === selectedTrader ||
-          position.address === selectedTrader;
-        if (!traderMatch) return false;
+        const addressMatch = position.address === selectedTrader;
+        const aliasMatch = position.alias && position.alias === selectedTrader;
+        if (!addressMatch && !aliasMatch) return false;
       }
       if (traderFilter) {
-        const traderText = (position.alias || position.address).toLowerCase();
-        if (!traderText.includes(traderFilter.toLowerCase())) {
+        const addressText = position.address.toLowerCase();
+        const aliasText = (position.alias || "").toLowerCase();
+        const filterText = traderFilter.toLowerCase();
+        if (
+          !addressText.includes(filterText) &&
+          !aliasText.includes(filterText)
+        ) {
           return false;
         }
       }
@@ -517,10 +726,53 @@ const PositionTable = ({
     });
   };
 
-  const getPaginatedPositions = (positionsList: Position[]) => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
+  const getPaginatedPositions = (positionsList: Position[], page: number) => {
+    const startIndex = (page - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     return positionsList.slice(startIndex, endIndex);
+  };
+
+  const sortPositions = (positionsList: Position[]) => {
+    if (!sortConfig.key) return positionsList;
+
+    return [...positionsList].sort((a, b) => {
+      const aValue = a[sortConfig.key!];
+      const bValue = b[sortConfig.key!];
+
+      // Handle different data types
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue);
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue;
+      } else {
+        // Convert to string for comparison
+        comparison = String(aValue).localeCompare(String(bValue));
+      }
+
+      return sortConfig.direction === "desc" ? -comparison : comparison;
+    });
+  };
+
+  const handleSort = (key: keyof Position) => {
+    setSortConfig((prevConfig) => ({
+      key,
+      direction:
+        prevConfig.key === key && prevConfig.direction === "asc"
+          ? "desc"
+          : "asc",
+    }));
+  };
+
+  const getSortIcon = (columnKey: keyof Position) => {
+    if (sortConfig.key !== columnKey) {
+      return <ArrowUpDown className="h-4 w-4 opacity-50" />;
+    }
+    return sortConfig.direction === "asc" ? (
+      <ArrowUp className="h-4 w-4" />
+    ) : (
+      <ArrowDown className="h-4 w-4" />
+    );
   };
 
   const getTotalPages = (totalItems: number) => {
@@ -534,7 +786,13 @@ const PositionTable = ({
 
   const getUniqueTraders = () => {
     const traders = new Set<string>();
-    positions.forEach((p) => {
+    // Get traders from all position sources
+    const allPositionSources = [
+      ...positions,
+      ...newPositions,
+      ...closedPositions,
+    ];
+    allPositionSources.forEach((p) => {
       if (p.alias) traders.add(p.alias);
       traders.add(p.address);
     });
@@ -573,13 +831,39 @@ const PositionTable = ({
     );
   };
 
-  const visiblePositions = getFilteredPositions(false);
-  const hiddenPositionsList = getFilteredPositions(true);
+  const visiblePositions = getFilteredPositions(positions, false, false);
+  const hiddenPositionsList = getFilteredPositions(
+    [...positions, ...newPositions, ...closedPositions],
+    true,
+    false,
+  );
+  const filteredNewPositions = getFilteredPositions(newPositions, false, false);
+  const filteredClosedPositions = getFilteredPositions(
+    closedPositions,
+    false,
+    false,
+  );
+  const filteredAllPositions = getFilteredPositions(allPositions, false, true);
 
   // Reset to first page when filters change
   useEffect(() => {
-    setCurrentPage(1);
+    setTabPagination({
+      active: 1,
+      new: 1,
+      closed: 1,
+      hidden: 1,
+      all: 1,
+    });
   }, [selectedCrypto, selectedTrader, cryptoFilter, traderFilter]);
+
+  // Update current page when tab changes
+  const getCurrentPage = () => tabPagination[activeTab] || 1;
+  const setCurrentPageForTab = (page: number) => {
+    setTabPagination((prev) => ({
+      ...prev,
+      [activeTab]: page,
+    }));
+  };
 
   const uniqueAssets = getUniqueAssets();
   const uniqueTraders = getUniqueTraders();
@@ -604,8 +888,13 @@ const PositionTable = ({
       );
     }
 
-    const paginatedPositions = getPaginatedPositions(positionsList);
-    const totalPages = getTotalPages(positionsList.length);
+    const sortedPositions = sortPositions(positionsList);
+    const currentPage = getCurrentPage();
+    const paginatedPositions = getPaginatedPositions(
+      sortedPositions,
+      currentPage,
+    );
+    const totalPages = getTotalPages(sortedPositions.length);
 
     return (
       <div className="space-y-4">
@@ -613,17 +902,98 @@ const PositionTable = ({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Asset</TableHead>
-                <TableHead>Side</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Size (USD)</TableHead>
-                <TableHead>Entry Price</TableHead>
-                <TableHead>Current Price</TableHead>
-                <TableHead>Leverage</TableHead>
-                <TableHead>PnL</TableHead>
-                <TableHead>Liquidation</TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("asset")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Asset</span>
+                    {getSortIcon("asset")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("side")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Side</span>
+                    {getSortIcon("side")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("size")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Size</span>
+                    {getSortIcon("size")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("sizeUSD")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Size (USD)</span>
+                    {getSortIcon("sizeUSD")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("entryPrice")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Entry Price</span>
+                    {getSortIcon("entryPrice")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("currentPrice")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Current Price</span>
+                    {getSortIcon("currentPrice")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("leverage")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Leverage</span>
+                    {getSortIcon("leverage")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("pnl")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>PnL</span>
+                    {getSortIcon("pnl")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("liquidationPrice")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Liquidation</span>
+                    {getSortIcon("liquidationPrice")}
+                  </div>
+                </TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Address</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("address")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Address</span>
+                    {getSortIcon("address")}
+                  </div>
+                </TableHead>
                 {showHideButton && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
@@ -694,9 +1064,95 @@ const PositionTable = ({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="text-xs">
-                      Active
+                    <Badge
+                      variant={(() => {
+                        const trackedPos = trackedPositions.find(
+                          (tp) => tp.position_key === position.positionKey,
+                        );
+                        if (trackedPos?.status === "new") return "default";
+                        if (trackedPos?.status === "closed") return "secondary";
+                        return "default";
+                      })()}
+                      className="text-xs"
+                    >
+                      {(() => {
+                        const trackedPos = trackedPositions.find(
+                          (tp) => tp.position_key === position.positionKey,
+                        );
+                        if (trackedPos?.status === "new") return "New";
+                        if (trackedPos?.status === "closed") return "Closed";
+                        return "Active";
+                      })()}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      // For active positions, find the tracked position to get creation time
+                      const trackedPos = trackedPositions.find(
+                        (tp) => tp.position_key === position.positionKey,
+                      );
+
+                      if (trackedPos && trackedPos.created_at) {
+                        const createdAt = new Date(trackedPos.created_at);
+                        const now = new Date();
+                        const durationMinutes = Math.floor(
+                          (now.getTime() - createdAt.getTime()) / (1000 * 60),
+                        );
+
+                        if (durationMinutes < 60) {
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              {durationMinutes}m
+                            </span>
+                          );
+                        } else if (durationMinutes < 1440) {
+                          const hours = Math.floor(durationMinutes / 60);
+                          const minutes = durationMinutes % 60;
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              {hours}h {minutes > 0 ? `${minutes}m` : ""}
+                            </span>
+                          );
+                        } else {
+                          const days = Math.floor(durationMinutes / 1440);
+                          const hours = Math.floor(
+                            (durationMinutes % 1440) / 60,
+                          );
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              {days}d {hours > 0 ? `${hours}h` : ""}
+                            </span>
+                          );
+                        }
+                      } else if (position.openTime) {
+                        // For closed positions, use the stored duration or calculate from openTime
+                        const durationMinutes = Math.floor(
+                          (Date.now() - position.openTime.getTime()) /
+                            (1000 * 60),
+                        );
+
+                        if (durationMinutes < 60) {
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              {durationMinutes}m
+                            </span>
+                          );
+                        } else {
+                          const hours = Math.floor(durationMinutes / 60);
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              {hours}h
+                            </span>
+                          );
+                        }
+                      } else {
+                        return (
+                          <span className="text-xs text-muted-foreground">
+                            -
+                          </span>
+                        );
+                      }
+                    })()}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
@@ -713,7 +1169,13 @@ const PositionTable = ({
                           </span>
                         </div>
                       )}
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span
+                        className="font-mono text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() =>
+                          navigator.clipboard.writeText(position.address)
+                        }
+                        title="Click to copy address"
+                      >
                         {position.address}
                       </span>
                     </div>
@@ -745,14 +1207,16 @@ const PositionTable = ({
           <div className="flex items-center justify-between">
             <div className="text-sm text-muted-foreground">
               Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-              {Math.min(currentPage * itemsPerPage, positionsList.length)} of{" "}
-              {positionsList.length} positions
+              {Math.min(currentPage * itemsPerPage, sortedPositions.length)} of{" "}
+              {sortedPositions.length} positions
             </div>
             <Pagination>
               <PaginationContent>
                 <PaginationItem>
                   <PaginationPrevious
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    onClick={() =>
+                      setCurrentPageForTab(Math.max(1, currentPage - 1))
+                    }
                     className={
                       currentPage === 1
                         ? "pointer-events-none opacity-50"
@@ -777,7 +1241,7 @@ const PositionTable = ({
                   return (
                     <PaginationItem key={pageNum}>
                       <PaginationLink
-                        onClick={() => setCurrentPage(pageNum)}
+                        onClick={() => setCurrentPageForTab(pageNum)}
                         isActive={currentPage === pageNum}
                         className="cursor-pointer"
                       >
@@ -796,7 +1260,9 @@ const PositionTable = ({
                 <PaginationItem>
                   <PaginationNext
                     onClick={() =>
-                      setCurrentPage(Math.min(totalPages, currentPage + 1))
+                      setCurrentPageForTab(
+                        Math.min(totalPages, currentPage + 1),
+                      )
                     }
                     className={
                       currentPage === totalPages
@@ -951,31 +1417,115 @@ const PositionTable = ({
               </div>
             </div>
 
+            {/* Analytics Summary */}
+            {analytics && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-primary">
+                    {analytics.totalPositions}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Total Positions
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div
+                    className={`text-2xl font-bold ${analytics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}
+                  >
+                    {formatCurrency(analytics.totalPnl)}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Total P&L</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-500">
+                    {analytics.winRate.toFixed(1)}%
+                  </div>
+                  <div className="text-sm text-muted-foreground">Win Rate</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-500">
+                    {Math.round(analytics.avgHoldingTimeMinutes / 60)}h
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Avg Hold Time
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Tabs for positions */}
-            <Tabs defaultValue="visible" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger
-                  value="visible"
-                  className="flex items-center space-x-2"
+                  value="active"
+                  className="flex items-center space-x-1 text-xs"
                 >
-                  <Eye className="h-4 w-4" />
-                  <span>Visible Positions ({visiblePositions.length})</span>
+                  <span>Active ({visiblePositions.length})</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="new"
+                  className="flex items-center space-x-1 text-xs"
+                >
+                  <span>New ({filteredNewPositions.length})</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="closed"
+                  className="flex items-center space-x-1 text-xs"
+                >
+                  <span>Closed ({filteredClosedPositions.length})</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="hidden"
-                  className="flex items-center space-x-2"
+                  className="flex items-center space-x-1 text-xs"
                 >
-                  <EyeOff className="h-4 w-4" />
-                  <span>Hidden Positions ({hiddenPositionsList.length})</span>
+                  <EyeOff className="h-3 w-3" />
+                  <span>Hidden ({hiddenPositionsList.length})</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="all"
+                  className="flex items-center space-x-1 text-xs"
+                >
+                  <span>All ({filteredAllPositions.length})</span>
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="visible" className="mt-4">
+              <TabsContent value="active" className="mt-4">
                 {renderPositionTable(visiblePositions, true, false)}
+              </TabsContent>
+
+              <TabsContent value="new" className="mt-4">
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    📈 New positions detected in the last 1 hour
+                  </p>
+                </div>
+                {renderPositionTable(filteredNewPositions, true, false)}
+              </TabsContent>
+
+              <TabsContent value="closed" className="mt-4">
+                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    📊 Positions that have been closed
+                  </p>
+                </div>
+                {renderPositionTable(filteredClosedPositions, false, false)}
               </TabsContent>
 
               <TabsContent value="hidden" className="mt-4">
                 {renderPositionTable(hiddenPositionsList, true, true)}
+              </TabsContent>
+
+              <TabsContent value="all" className="mt-4">
+                <div className="mb-4 p-3 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <p className="text-sm text-purple-700 dark:text-purple-300">
+                    📋 Complete position history and current positions
+                  </p>
+                </div>
+                {renderPositionTable(filteredAllPositions, true, false)}
               </TabsContent>
             </Tabs>
           </div>

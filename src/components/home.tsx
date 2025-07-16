@@ -22,7 +22,7 @@ interface AddressWithAlias {
 
 const Home = () => {
   const [addresses, setAddresses] = useState<AddressWithAlias[]>([]);
-  const [refreshInterval, setRefreshInterval] = useState<30 | 60 | 300>(60); // Default to 1 minute
+  const [refreshInterval, setRefreshInterval] = useState<30 | 60 | 300>(300); // Default to 5 minutes
   const [loading, setLoading] = useState(true);
 
   // Load addresses from Supabase on component mount
