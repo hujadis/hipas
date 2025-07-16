@@ -19,7 +19,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
-import { Trash2, Plus, Bell, BellOff, Users } from "lucide-react";
+import { Trash2, Plus, Bell, BellOff, Users, Copy } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Switch } from "./ui/switch";
 
@@ -263,9 +263,17 @@ const AddressManagement: React.FC<AddressManagementProps> = ({
                                       <div className="flex items-center space-x-2">
                                         <Badge
                                           variant="outline"
-                                          className="font-mono text-xs py-0.5 px-1 truncate max-w-32"
+                                          className="font-mono text-xs py-0.5 px-1 truncate max-w-full cursor-pointer hover:bg-muted"
+                                          onClick={() =>
+                                            window.dispatchEvent(
+                                              new CustomEvent("search-trader", {
+                                                detail: addressObj.address,
+                                              }),
+                                            )
+                                          }
+                                          title="Click to search for this address"
                                         >
-                                          {`${addressObj.address.slice(0, 6)}...${addressObj.address.slice(-4)}`}
+                                          {addressObj.address}
                                         </Badge>
                                         <Button
                                           variant="ghost"
@@ -356,12 +364,35 @@ const AddressManagement: React.FC<AddressManagementProps> = ({
                                   </div>
                                 </div>
                                 {addressObj.alias && (
-                                  <Badge
-                                    variant="outline"
-                                    className="font-mono text-xs py-0.5 px-1 truncate max-w-full"
-                                  >
-                                    {`${addressObj.address.slice(0, 8)}...${addressObj.address.slice(-6)}`}
-                                  </Badge>
+                                  <div className="flex items-center space-x-2">
+                                    <Badge
+                                      variant="outline"
+                                      className="font-mono text-xs py-0.5 px-1 truncate max-w-full cursor-pointer hover:bg-muted"
+                                      onClick={() =>
+                                        window.dispatchEvent(
+                                          new CustomEvent("search-trader", {
+                                            detail: addressObj.address,
+                                          }),
+                                        )
+                                      }
+                                      title="Click to search for this address"
+                                    >
+                                      {addressObj.address}
+                                    </Badge>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-5 px-1 text-xs"
+                                      onClick={() =>
+                                        navigator.clipboard.writeText(
+                                          addressObj.address,
+                                        )
+                                      }
+                                      title="Copy address to clipboard"
+                                    >
+                                      Copy
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                             )}

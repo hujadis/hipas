@@ -133,6 +133,7 @@ const PositionTable = ({
   const [sortConfig, setSortConfig] = useState<{
     key: keyof Position | null;
     direction: "asc" | "desc";
+    customSort?: string;
   }>({ key: null, direction: "asc" });
 
   const fetchCurrentPrices = async (
@@ -526,12 +527,16 @@ const PositionTable = ({
 
       // For all positions, combine current active positions with historical ones
       // Create a comprehensive list without premature deduplication
+      // Make sure to include ALL positions, including those that might be hidden
       const allCombinedPositions = [
         ...positionsWithUSD,
-        ...convertTrackedToDisplay(newPositionsFiltered),
-        ...convertTrackedToDisplay(closedPositionsFiltered),
+        ...convertTrackedToDisplay(historicalPositions),
       ];
 
+      // Ensure we have a complete set of positions for the All tab
+      console.log(
+        `📊 Combined ${allCombinedPositions.length} positions for All tab`,
+      );
       setAllPositions(allCombinedPositions);
 
       setPositions(positionsWithUSD);
@@ -593,7 +598,26 @@ const PositionTable = ({
       }
     }, refreshInterval);
 
-    return () => clearInterval(intervalId);
+    // Listen for search-trader events from AddressManagement
+    const handleSearchTrader = (event: CustomEvent) => {
+      const address = event.detail;
+      setTraderFilter(address);
+      setSelectedTrader("all"); // Reset dropdown to show custom filter is active
+      setActiveTab("active"); // Switch to active tab to show results
+    };
+
+    window.addEventListener(
+      "search-trader",
+      handleSearchTrader as EventListener,
+    );
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener(
+        "search-trader",
+        handleSearchTrader as EventListener,
+      );
+    };
   }, [addresses, refreshInterval, isInitialLoad]);
 
   const handleRefresh = () => {
@@ -684,13 +708,18 @@ const PositionTable = ({
     return uniquePositions.filter((position) => {
       // Filter by hidden status - special handling for "All" tab
       const isHidden = hiddenPositions.has(position.positionKey);
+
+      // For "All" tab, include both hidden and visible positions
       if (showAllPositions) {
-        // For "All" tab, include both hidden and visible positions
-        // No filtering by hidden status
-      } else if (includeHidden && !isHidden) {
-        return false; // Hidden tab - only show hidden positions
-      } else if (!includeHidden && isHidden) {
-        return false; // Other tabs - exclude hidden positions
+        // Skip hidden status filtering completely for All tab
+      }
+      // For Hidden tab, only show hidden positions
+      else if (includeHidden && !isHidden) {
+        return false;
+      }
+      // For other tabs (active, new, closed), exclude hidden positions
+      else if (!includeHidden && isHidden) {
+        return false;
       }
 
       // Filter by cryptocurrency
@@ -733,39 +762,98 @@ const PositionTable = ({
   };
 
   const sortPositions = (positionsList: Position[]) => {
-    if (!sortConfig.key) return positionsList;
+    if (!sortConfig.key && !sortConfig.customSort) return positionsList;
 
     return [...positionsList].sort((a, b) => {
-      const aValue = a[sortConfig.key!];
-      const bValue = b[sortConfig.key!];
+      // Handle custom sort fields
+      if (sortConfig.customSort === "duration") {
+        // Get tracked positions for duration comparison
+        const aTracked = trackedPositions.find(
+          (tp) => tp.position_key === a.positionKey,
+        );
+        const bTracked = trackedPositions.find(
+          (tp) => tp.position_key === b.positionKey,
+        );
 
-      // Handle different data types
-      let comparison = 0;
-      if (typeof aValue === "string" && typeof bValue === "string") {
-        comparison = aValue.localeCompare(bValue);
-      } else if (typeof aValue === "number" && typeof bValue === "number") {
-        comparison = aValue - bValue;
-      } else {
-        // Convert to string for comparison
-        comparison = String(aValue).localeCompare(String(bValue));
+        const aCreatedAt = aTracked?.created_at
+          ? new Date(aTracked.created_at).getTime()
+          : 0;
+        const bCreatedAt = bTracked?.created_at
+          ? new Date(bTracked.created_at).getTime()
+          : 0;
+
+        const comparison = aCreatedAt - bCreatedAt;
+        return sortConfig.direction === "desc" ? comparison : -comparison;
       }
 
-      return sortConfig.direction === "desc" ? -comparison : comparison;
+      if (sortConfig.customSort === "status") {
+        // Get status values for comparison
+        const getStatusPriority = (position: Position) => {
+          const trackedPos = trackedPositions.find(
+            (tp) => tp.position_key === position.positionKey,
+          );
+          const status = trackedPos?.status || "active";
+          // Priority: new (highest) > active > closed (lowest)
+          if (status === "new") return 3;
+          if (status === "active") return 2;
+          return 1; // closed
+        };
+
+        const aPriority = getStatusPriority(a);
+        const bPriority = getStatusPriority(b);
+
+        const comparison = aPriority - bPriority;
+        return sortConfig.direction === "desc" ? -comparison : comparison;
+      }
+
+      // Regular field sorting
+      if (sortConfig.key) {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
+
+        // Handle different data types
+        let comparison = 0;
+        if (typeof aValue === "string" && typeof bValue === "string") {
+          comparison = aValue.localeCompare(bValue);
+        } else if (typeof aValue === "number" && typeof bValue === "number") {
+          comparison = aValue - bValue;
+        } else {
+          // Convert to string for comparison
+          comparison = String(aValue).localeCompare(String(bValue));
+        }
+
+        return sortConfig.direction === "desc" ? -comparison : comparison;
+      }
+
+      return 0;
     });
   };
 
-  const handleSort = (key: keyof Position) => {
-    setSortConfig((prevConfig) => ({
-      key,
-      direction:
-        prevConfig.key === key && prevConfig.direction === "asc"
-          ? "desc"
-          : "asc",
-    }));
+  const handleSort = (key: keyof Position | null, customSort?: string) => {
+    setSortConfig((prevConfig) => {
+      // Check if we're sorting the same field
+      const isSameField = customSort
+        ? prevConfig.customSort === customSort
+        : prevConfig.key === key;
+
+      return {
+        key: customSort ? null : key,
+        customSort,
+        direction:
+          isSameField && prevConfig.direction === "asc" ? "desc" : "asc",
+      };
+    });
   };
 
-  const getSortIcon = (columnKey: keyof Position) => {
-    if (sortConfig.key !== columnKey) {
+  const getSortIcon = (
+    columnKey: keyof Position | null,
+    customSort?: string,
+  ) => {
+    const isActive = customSort
+      ? sortConfig.customSort === customSort
+      : sortConfig.key === columnKey;
+
+    if (!isActive) {
       return <ArrowUpDown className="h-4 w-4 opacity-50" />;
     }
     return sortConfig.direction === "asc" ? (
@@ -843,6 +931,7 @@ const PositionTable = ({
     false,
     false,
   );
+  // For All tab, we need to include ALL positions regardless of hidden status
   const filteredAllPositions = getFilteredPositions(allPositions, false, true);
 
   // Reset to first page when filters change
@@ -898,7 +987,183 @@ const PositionTable = ({
 
     return (
       <div className="space-y-4">
-        <div className="overflow-x-auto">
+        {/* Mobile Card View */}
+        <div className="block lg:hidden space-y-3">
+          {paginatedPositions.map((position, index) => (
+            <Card key={index} className="p-4">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-semibold text-lg">{position.asset}</h3>
+                  <Badge
+                    variant={
+                      position.side === "LONG" ? "default" : "destructive"
+                    }
+                    className="font-medium text-xs"
+                  >
+                    {position.side}
+                  </Badge>
+                </div>
+                {showHideButton && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => toggleHidePosition(position.positionKey)}
+                    className="h-8 w-8 p-0"
+                  >
+                    {isHiddenTab ? (
+                      <Eye className="h-4 w-4" />
+                    ) : (
+                      <EyeOff className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Size:</span>
+                  <div
+                    className={
+                      position.size > 0
+                        ? "text-green-500 font-medium"
+                        : "text-red-500 font-medium"
+                    }
+                  >
+                    {position.size > 0 ? "+" : ""}
+                    {Math.abs(position.size) < 0.001
+                      ? position.size.toExponential(3)
+                      : position.size.toFixed(3)}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Size (USD):</span>
+                  <div className="font-medium text-blue-600">
+                    {formatCurrency(position.sizeUSD)}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Entry:</span>
+                  <div className="font-mono text-sm">
+                    {formatPrice(position.entryPrice)}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Current:</span>
+                  <div className="font-mono text-sm">
+                    {formatPrice(position.currentPrice)}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Leverage:</span>
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    {position.leverage
+                      ? `${position.leverage.toFixed(1)}x`
+                      : "N/A"}
+                  </Badge>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">PnL:</span>
+                  <div
+                    className={
+                      position.pnl >= 0
+                        ? "text-green-500 font-medium"
+                        : "text-red-500 font-medium"
+                    }
+                  >
+                    {formatCurrency(position.pnl)}
+                    <div
+                      className={`text-xs ${position.pnlPercentage >= 0 ? "text-green-500" : "text-red-500"}`}
+                    >
+                      {position.pnlPercentage >= 0 ? "+" : ""}
+                      {position.pnlPercentage.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <div className="flex justify-between items-center text-xs">
+                  <div>
+                    <Badge
+                      variant={(() => {
+                        const trackedPos = trackedPositions.find(
+                          (tp) => tp.position_key === position.positionKey,
+                        );
+                        if (trackedPos?.status === "new") return "default";
+                        if (trackedPos?.status === "closed") return "secondary";
+                        return "default";
+                      })()}
+                      className="text-xs"
+                    >
+                      {(() => {
+                        const trackedPos = trackedPositions.find(
+                          (tp) => tp.position_key === position.positionKey,
+                        );
+                        if (trackedPos?.status === "new") return "New";
+                        if (trackedPos?.status === "closed") return "Closed";
+                        return "Active";
+                      })()}
+                    </Badge>
+                  </div>
+                  <div className="text-muted-foreground">
+                    {(() => {
+                      const trackedPos = trackedPositions.find(
+                        (tp) => tp.position_key === position.positionKey,
+                      );
+                      if (trackedPos && trackedPos.created_at) {
+                        const createdAt = new Date(trackedPos.created_at);
+                        const now = new Date();
+                        const durationMinutes = Math.floor(
+                          (now.getTime() - createdAt.getTime()) / (1000 * 60),
+                        );
+                        if (durationMinutes < 60) {
+                          return `${durationMinutes}m`;
+                        } else if (durationMinutes < 1440) {
+                          const hours = Math.floor(durationMinutes / 60);
+                          const minutes = durationMinutes % 60;
+                          return `${hours}h ${minutes > 0 ? `${minutes}m` : ""}`;
+                        } else {
+                          const days = Math.floor(durationMinutes / 1440);
+                          const hours = Math.floor(
+                            (durationMinutes % 1440) / 60,
+                          );
+                          return `${days}d ${hours > 0 ? `${hours}h` : ""}`;
+                        }
+                      }
+                      return "-";
+                    })()}
+                  </div>
+                </div>
+
+                {position.alias && (
+                  <div className="flex items-center space-x-2 mt-2">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: position.color || "#3b82f6" }}
+                    ></div>
+                    <span className="text-xs font-medium">
+                      {position.alias}
+                    </span>
+                  </div>
+                )}
+
+                <div
+                  className="font-mono text-xs text-muted-foreground mt-1 cursor-pointer hover:text-foreground transition-colors break-all"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(position.address);
+                  }}
+                  title="Click to copy address"
+                >
+                  {position.address}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -983,8 +1248,24 @@ const PositionTable = ({
                     {getSortIcon("liquidationPrice")}
                   </div>
                 </TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Duration</TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort(null, "status")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Status</span>
+                    {getSortIcon(null, "status")}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort(null, "duration")}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Duration</span>
+                    {getSortIcon(null, "duration")}
+                  </div>
+                </TableHead>
                 <TableHead
                   className="cursor-pointer hover:bg-muted/50 select-none"
                   onClick={() => handleSort("address")}
@@ -1105,22 +1386,11 @@ const PositionTable = ({
                               {durationMinutes}m
                             </span>
                           );
-                        } else if (durationMinutes < 1440) {
-                          const hours = Math.floor(durationMinutes / 60);
-                          const minutes = durationMinutes % 60;
-                          return (
-                            <span className="text-xs text-muted-foreground">
-                              {hours}h {minutes > 0 ? `${minutes}m` : ""}
-                            </span>
-                          );
                         } else {
-                          const days = Math.floor(durationMinutes / 1440);
-                          const hours = Math.floor(
-                            (durationMinutes % 1440) / 60,
-                          );
+                          const hours = Math.floor(durationMinutes / 60);
                           return (
                             <span className="text-xs text-muted-foreground">
-                              {days}d {hours > 0 ? `${hours}h` : ""}
+                              {hours}h
                             </span>
                           );
                         }
@@ -1171,12 +1441,29 @@ const PositionTable = ({
                       )}
                       <span
                         className="font-mono text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                        onClick={() =>
-                          navigator.clipboard.writeText(position.address)
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(position.address);
+                        }}
                         title="Click to copy address"
                       >
-                        {position.address}
+                        <span
+                          className="hover:underline hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Dispatch custom event to filter by this address
+                            const event = new CustomEvent("search-trader", {
+                              detail: position.address,
+                            });
+                            window.dispatchEvent(event);
+                            // Also update the trader filter directly
+                            setTraderFilter(position.address);
+                            setSelectedTrader("all");
+                            setActiveTab("active");
+                          }}
+                        >
+                          {position.address}
+                        </span>
                       </span>
                     </div>
                   </TableCell>
@@ -1204,14 +1491,14 @@ const PositionTable = ({
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
+          <div className="flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
+            <div className="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
               Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
               {Math.min(currentPage * itemsPerPage, sortedPositions.length)} of{" "}
               {sortedPositions.length} positions
             </div>
             <Pagination>
-              <PaginationContent>
+              <PaginationContent className="flex-wrap justify-center">
                 <PaginationItem>
                   <PaginationPrevious
                     onClick={() =>
@@ -1225,37 +1512,52 @@ const PositionTable = ({
                   />
                 </PaginationItem>
 
-                {/* Page numbers */}
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
+                {/* Page numbers - show fewer on mobile */}
+                {Array.from(
+                  {
+                    length: Math.min(
+                      window.innerWidth < 640 ? 3 : 5,
+                      totalPages,
+                    ),
+                  },
+                  (_, i) => {
+                    let pageNum;
+                    const maxPages = window.innerWidth < 640 ? 3 : 5;
+                    if (totalPages <= maxPages) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= Math.floor(maxPages / 2) + 1) {
+                      pageNum = i + 1;
+                    } else if (
+                      currentPage >=
+                      totalPages - Math.floor(maxPages / 2)
+                    ) {
+                      pageNum = totalPages - maxPages + 1 + i;
+                    } else {
+                      pageNum = currentPage - Math.floor(maxPages / 2) + i;
+                    }
 
-                  return (
-                    <PaginationItem key={pageNum}>
-                      <PaginationLink
-                        onClick={() => setCurrentPageForTab(pageNum)}
-                        isActive={currentPage === pageNum}
-                        className="cursor-pointer"
-                      >
-                        {pageNum}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                })}
-
-                {totalPages > 5 && currentPage < totalPages - 2 && (
-                  <PaginationItem>
-                    <PaginationEllipsis />
-                  </PaginationItem>
+                    return (
+                      <PaginationItem key={pageNum}>
+                        <PaginationLink
+                          onClick={() => setCurrentPageForTab(pageNum)}
+                          isActive={currentPage === pageNum}
+                          className="cursor-pointer"
+                        >
+                          {pageNum}
+                        </PaginationLink>
+                      </PaginationItem>
+                    );
+                  },
                 )}
+
+                {totalPages > (window.innerWidth < 640 ? 3 : 5) &&
+                  currentPage <
+                    totalPages -
+                      Math.floor((window.innerWidth < 640 ? 3 : 5) / 2) && (
+                    <PaginationItem>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  )}
 
                 <PaginationItem>
                   <PaginationNext
@@ -1281,28 +1583,36 @@ const PositionTable = ({
 
   return (
     <Card className="w-full bg-background">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 space-y-2 sm:space-y-0">
         <div className="flex items-center space-x-3">
-          <CardTitle className="text-xl font-semibold">Positions</CardTitle>
+          <CardTitle className="text-lg sm:text-xl font-semibold">
+            Positions
+          </CardTitle>
           {notificationCount > 0 && (
             <Badge variant="secondary" className="flex items-center space-x-1">
               <Bell className="h-3 w-3" />
-              <span>{notificationCount} new</span>
+              <span className="text-xs">{notificationCount} new</span>
             </Badge>
           )}
         </div>
         <div className="flex items-center space-x-2">
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Clock className="mr-1 h-4 w-4" />
-            <span>Last updated: {formatTime(lastRefreshed)}</span>
+          <div className="flex items-center text-xs sm:text-sm text-muted-foreground">
+            <Clock className="mr-1 h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">
+              Last updated: {formatTime(lastRefreshed)}
+            </span>
+            <span className="sm:hidden">{formatTime(lastRefreshed)}</span>
           </div>
           <Button
             size="sm"
             variant="ghost"
             onClick={handleRefresh}
             disabled={loading}
+            className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3 w-3 sm:h-4 sm:w-4 ${loading ? "animate-spin" : ""}`}
+            />
           </Button>
         </div>
       </CardHeader>
@@ -1336,117 +1646,135 @@ const PositionTable = ({
         ) : (
           <div className="space-y-4">
             {/* Filters */}
-            <div className="flex flex-wrap gap-4 p-4 bg-muted/50 rounded-lg">
-              <div className="flex items-center space-x-2">
+            <div className="space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:gap-4 p-3 sm:p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center space-x-2 mb-2 sm:mb-0">
                 <Filter className="h-4 w-4" />
                 <span className="text-sm font-medium">Filters:</span>
               </div>
 
               {/* Cryptocurrency Filter */}
-              <div className="flex items-center space-x-2">
-                <span className="text-sm">Crypto:</span>
-                <Select
-                  value={selectedCrypto}
-                  onValueChange={setSelectedCrypto}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueAssets.map((asset) => (
-                      <SelectItem key={asset} value={asset}>
-                        {asset}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Search crypto..."
-                  value={cryptoFilter}
-                  onChange={(e) => setCryptoFilter(e.target.value)}
-                  className="w-32"
-                />
-                {cryptoFilter && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setCryptoFilter("")}
-                    className="h-8 w-8 p-0"
+              <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+                <span className="text-sm font-medium sm:font-normal">
+                  Crypto:
+                </span>
+                <div className="flex space-x-2">
+                  <Select
+                    value={selectedCrypto}
+                    onValueChange={setSelectedCrypto}
                   >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+                    <SelectTrigger className="w-full sm:w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      {uniqueAssets.map((asset) => (
+                        <SelectItem key={asset} value={asset}>
+                          {asset}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex-1 sm:flex-none relative">
+                    <Input
+                      placeholder="Search crypto..."
+                      value={cryptoFilter}
+                      onChange={(e) => setCryptoFilter(e.target.value)}
+                      className="w-full sm:w-32 pr-8"
+                    />
+                    {cryptoFilter && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCryptoFilter("")}
+                        className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Trader Filter */}
-              <div className="flex items-center space-x-2">
-                <span className="text-sm">Trader:</span>
-                <Select
-                  value={selectedTrader}
-                  onValueChange={setSelectedTrader}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    {uniqueTraders.map((trader) => (
-                      <SelectItem key={trader} value={trader}>
-                        {trader}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Search trader..."
-                  value={traderFilter}
-                  onChange={(e) => setTraderFilter(e.target.value)}
-                  className="w-32"
-                />
-                {traderFilter && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setTraderFilter("")}
-                    className="h-8 w-8 p-0"
+              <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+                <span className="text-sm font-medium sm:font-normal">
+                  Trader:
+                </span>
+                <div className="flex space-x-2">
+                  <Select
+                    value={selectedTrader}
+                    onValueChange={setSelectedTrader}
                   >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+                    <SelectTrigger className="w-full sm:w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      {uniqueTraders.map((trader) => (
+                        <SelectItem key={trader} value={trader}>
+                          {trader.length > 20
+                            ? `${trader.substring(0, 20)}...`
+                            : trader}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex-1 sm:flex-none relative">
+                    <Input
+                      placeholder="Search trader..."
+                      value={traderFilter}
+                      onChange={(e) => setTraderFilter(e.target.value)}
+                      className="w-full sm:w-32 pr-8"
+                    />
+                    {traderFilter && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setTraderFilter("")}
+                        className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Analytics Summary */}
             {analytics && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-muted/30 rounded-lg">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-primary">
+                  <div className="text-xl sm:text-2xl font-bold text-primary">
                     {analytics.totalPositions}
                   </div>
-                  <div className="text-sm text-muted-foreground">
+                  <div className="text-xs sm:text-sm text-muted-foreground">
                     Total Positions
                   </div>
                 </div>
                 <div className="text-center">
                   <div
-                    className={`text-2xl font-bold ${analytics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}
+                    className={`text-xl sm:text-2xl font-bold ${analytics.totalPnl >= 0 ? "text-green-500" : "text-red-500"}`}
                   >
                     {formatCurrency(analytics.totalPnl)}
                   </div>
-                  <div className="text-sm text-muted-foreground">Total P&L</div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">
+                    Total P&L
+                  </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-500">
+                  <div className="text-xl sm:text-2xl font-bold text-blue-500">
                     {analytics.winRate.toFixed(1)}%
                   </div>
-                  <div className="text-sm text-muted-foreground">Win Rate</div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">
+                    Win Rate
+                  </div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-500">
+                  <div className="text-xl sm:text-2xl font-bold text-purple-500">
                     {Math.round(analytics.avgHoldingTimeMinutes / 60)}h
                   </div>
-                  <div className="text-sm text-muted-foreground">
+                  <div className="text-xs sm:text-sm text-muted-foreground">
                     Avg Hold Time
                   </div>
                 </div>
@@ -1459,37 +1787,77 @@ const PositionTable = ({
               onValueChange={setActiveTab}
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-5 h-auto">
                 <TabsTrigger
                   value="active"
-                  className="flex items-center space-x-1 text-xs"
+                  className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-1 text-xs p-2 sm:p-3"
                 >
-                  <span>Active ({visiblePositions.length})</span>
+                  <span className="hidden sm:inline">
+                    Active ({visiblePositions.length})
+                  </span>
+                  <span className="sm:hidden text-center">
+                    <span className="block">Active</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({visiblePositions.length})
+                    </span>
+                  </span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="new"
-                  className="flex items-center space-x-1 text-xs"
+                  className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-1 text-xs p-2 sm:p-3"
                 >
-                  <span>New ({filteredNewPositions.length})</span>
+                  <span className="hidden sm:inline">
+                    New ({filteredNewPositions.length})
+                  </span>
+                  <span className="sm:hidden text-center">
+                    <span className="block">New</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({filteredNewPositions.length})
+                    </span>
+                  </span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="closed"
-                  className="flex items-center space-x-1 text-xs"
+                  className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-1 text-xs p-2 sm:p-3"
                 >
-                  <span>Closed ({filteredClosedPositions.length})</span>
+                  <span className="hidden sm:inline">
+                    Closed ({filteredClosedPositions.length})
+                  </span>
+                  <span className="sm:hidden text-center">
+                    <span className="block">Closed</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({filteredClosedPositions.length})
+                    </span>
+                  </span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="hidden"
-                  className="flex items-center space-x-1 text-xs"
+                  className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-1 text-xs p-2 sm:p-3"
                 >
                   <EyeOff className="h-3 w-3" />
-                  <span>Hidden ({hiddenPositionsList.length})</span>
+                  <span className="hidden sm:inline">
+                    Hidden ({hiddenPositionsList.length})
+                  </span>
+                  <span className="sm:hidden text-center">
+                    <span className="block">Hidden</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({hiddenPositionsList.length})
+                    </span>
+                  </span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="all"
-                  className="flex items-center space-x-1 text-xs"
+                  className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-1 text-xs p-2 sm:p-3"
                 >
-                  <span>All ({filteredAllPositions.length})</span>
+                  <span className="hidden sm:inline">
+                    All ({filteredAllPositions.length})
+                  </span>
+                  <span className="sm:hidden text-center">
+                    <span className="block">All</span>
+                    <span className="text-xs text-muted-foreground">
+                      ({filteredAllPositions.length})
+                    </span>
+                  </span>
                 </TabsTrigger>
               </TabsList>
 
@@ -1528,6 +1896,733 @@ const PositionTable = ({
                 {renderPositionTable(filteredAllPositions, true, false)}
               </TabsContent>
             </Tabs>
+
+            {/* Analytics Charts */}
+            {!loading && positions.length > 0 && (
+              <div className="mt-8 space-y-6">
+                <h3 className="text-lg font-semibold">Position Analytics</h3>
+
+                {/* Long/Short Distribution Chart */}
+                <Card className="p-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-md font-medium">
+                      Long/Short Distribution by Asset (Active Positions Only)
+                    </h4>
+                    <div className="flex items-center space-x-2">
+                      <label className="text-sm text-muted-foreground cursor-pointer flex items-center">
+                        <input
+                          type="checkbox"
+                          className="mr-2 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          onChange={(e) => {
+                            const checkbox = e.target as HTMLInputElement;
+                            const assetCards = document.querySelectorAll(
+                              '[data-single-position="true"]',
+                            );
+                            assetCards.forEach((card) => {
+                              if (checkbox.checked) {
+                                (card as HTMLElement).style.display = "block";
+                              } else {
+                                (card as HTMLElement).style.display = "none";
+                              }
+                            });
+                          }}
+                        />
+                        Show single positions
+                      </label>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    {(() => {
+                      // Only use active positions for the chart (from the active tab)
+                      const activePositionsOnly = visiblePositions;
+                      console.log(
+                        `Using ${activePositionsOnly.length} active positions for chart analysis`,
+                      );
+
+                      // Calculate positions by asset for all addresses combined
+                      const positionsByAsset = activePositionsOnly.reduce(
+                        (acc, position) => {
+                          const asset = position.asset;
+                          if (!acc[asset]) {
+                            acc[asset] = {
+                              longCount: 0,
+                              shortCount: 0,
+                              longSize: 0,
+                              shortSize: 0,
+                              longUSD: 0,
+                              shortUSD: 0,
+                              totalUSD: 0,
+                              totalSize: 0,
+                              totalCount: 0,
+                              longTotalPrice: 0,
+                              shortTotalPrice: 0,
+                              lastActivity: null as Date | null,
+                              currentPrice: 0,
+                              avgLongEntryPrice: 0,
+                              avgShortEntryPrice: 0,
+                              longPnl: 0,
+                              shortPnl: 0,
+                              totalPnl: 0,
+                              addresses: new Set<string>(),
+                            };
+                          }
+
+                          // Update current price for the asset (use the most recent one)
+                          acc[asset].currentPrice =
+                            position.currentPrice || acc[asset].currentPrice;
+
+                          // Track last activity time
+                          const trackedPos = trackedPositions.find(
+                            (tp) => tp.position_key === position.positionKey,
+                          );
+
+                          if (trackedPos && trackedPos.created_at) {
+                            const activityTime = new Date(
+                              trackedPos.created_at,
+                            );
+                            if (
+                              !acc[asset].lastActivity ||
+                              (acc[asset].lastActivity &&
+                                activityTime > acc[asset].lastActivity)
+                            ) {
+                              acc[asset].lastActivity = activityTime;
+                            }
+                          }
+
+                          // Track unique addresses
+                          acc[asset].addresses.add(position.address);
+
+                          if (position.side === "LONG") {
+                            acc[asset].longCount++;
+                            acc[asset].longSize += Math.abs(position.size);
+                            acc[asset].longUSD += position.sizeUSD;
+                            acc[asset].longTotalPrice += position.entryPrice;
+                            acc[asset].longPnl += position.pnl;
+                          } else {
+                            acc[asset].shortCount++;
+                            acc[asset].shortSize += Math.abs(position.size);
+                            acc[asset].shortUSD += position.sizeUSD;
+                            acc[asset].shortTotalPrice += position.entryPrice;
+                            acc[asset].shortPnl += position.pnl;
+                          }
+
+                          acc[asset].totalCount++;
+                          acc[asset].totalSize += Math.abs(position.size);
+                          acc[asset].totalUSD += position.sizeUSD;
+                          acc[asset].totalPnl += position.pnl;
+
+                          return acc;
+                        },
+                        {} as Record<
+                          string,
+                          {
+                            longCount: number;
+                            shortCount: number;
+                            longSize: number;
+                            shortSize: number;
+                            longUSD: number;
+                            shortUSD: number;
+                            totalUSD: number;
+                            totalSize: number;
+                            totalCount: number;
+                            longTotalPrice: number;
+                            shortTotalPrice: number;
+                            lastActivity: Date | null;
+                            currentPrice: number;
+                            avgLongEntryPrice: number;
+                            avgShortEntryPrice: number;
+                            longPnl: number;
+                            shortPnl: number;
+                            totalPnl: number;
+                            addresses: Set<string>;
+                          }
+                        >,
+                      );
+
+                      // Calculate average entry prices
+                      Object.values(positionsByAsset).forEach((data) => {
+                        data.avgLongEntryPrice =
+                          data.longCount > 0
+                            ? data.longTotalPrice / data.longCount
+                            : 0;
+                        data.avgShortEntryPrice =
+                          data.shortCount > 0
+                            ? data.shortTotalPrice / data.shortCount
+                            : 0;
+                      });
+
+                      // Sort by total USD value
+                      const sortedAssets = Object.entries(
+                        positionsByAsset,
+                      ).sort((a, b) => b[1].totalUSD - a[1].totalUSD);
+
+                      // Find max value for scaling
+                      const maxUSD = Math.max(
+                        ...sortedAssets.map(([_, data]) => data.totalUSD),
+                        1,
+                      );
+
+                      return sortedAssets.map(([asset, data]) => {
+                        const longPercentage =
+                          data.totalUSD > 0
+                            ? (data.longUSD / data.totalUSD) * 100
+                            : 0;
+                        const shortPercentage = 100 - longPercentage;
+
+                        // Calculate price difference from average entry
+                        const longPriceDiff =
+                          data.avgLongEntryPrice > 0
+                            ? ((data.currentPrice - data.avgLongEntryPrice) /
+                                data.avgLongEntryPrice) *
+                              100
+                            : 0;
+                        const shortPriceDiff =
+                          data.avgShortEntryPrice > 0
+                            ? ((data.avgShortEntryPrice - data.currentPrice) /
+                                data.avgShortEntryPrice) *
+                              100
+                            : 0;
+
+                        // Format time since last activity
+                        const lastActivityText = data.lastActivity
+                          ? (() => {
+                              const now = new Date();
+                              const diffMs =
+                                now.getTime() - data.lastActivity!.getTime();
+                              const diffMins = Math.floor(diffMs / 60000);
+                              if (diffMins < 60) return `${diffMins}m ago`;
+                              const diffHours = Math.floor(diffMins / 60);
+                              if (diffHours < 24) return `${diffHours}h ago`;
+                              return `${Math.floor(diffHours / 24)}d ago`;
+                            })()
+                          : "Unknown";
+
+                        // Determine if this is a single position asset
+                        const isSinglePosition = data.totalCount === 1;
+
+                        return (
+                          <div
+                            key={asset}
+                            className={`mb-4 sm:mb-6 p-3 sm:p-4 rounded-lg border ${isSinglePosition ? "border-gray-200 dark:border-gray-700" : "border-blue-200 dark:border-blue-800"} bg-white dark:bg-gray-900 shadow-sm`}
+                            data-single-position={
+                              isSinglePosition ? "true" : "false"
+                            }
+                            style={{
+                              display: isSinglePosition ? "none" : "block",
+                            }}
+                          >
+                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-3 space-y-2 sm:space-y-0">
+                              <div className="flex items-center space-x-2">
+                                <h3 className="text-base sm:text-lg font-bold">
+                                  {asset}
+                                </h3>
+                                <Badge variant="outline" className="text-xs">
+                                  {data.addresses.size}{" "}
+                                  {data.addresses.size === 1
+                                    ? "address"
+                                    : "addresses"}
+                                </Badge>
+                              </div>
+                              <div className="text-xs sm:text-sm text-muted-foreground">
+                                Last activity: {lastActivityText}
+                              </div>
+                            </div>
+
+                            {/* Price Information */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 p-3 bg-muted/30 rounded-md">
+                              <div>
+                                <div className="text-sm text-muted-foreground">
+                                  Current Price
+                                </div>
+                                <div className="font-mono font-medium">
+                                  {formatPrice(data.currentPrice)}
+                                </div>
+                              </div>
+                              {data.longCount > 0 && (
+                                <div>
+                                  <div className="text-sm text-muted-foreground">
+                                    Avg Long Entry
+                                  </div>
+                                  <div
+                                    className={`font-mono font-medium ${longPriceDiff >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                  >
+                                    {formatPrice(data.avgLongEntryPrice)}
+                                    <span className="text-xs ml-1">
+                                      ({longPriceDiff >= 0 ? "+" : ""}
+                                      {longPriceDiff.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                              {data.shortCount > 0 && (
+                                <div>
+                                  <div className="text-sm text-muted-foreground">
+                                    Avg Short Entry
+                                  </div>
+                                  <div
+                                    className={`font-mono font-medium ${shortPriceDiff >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                  >
+                                    {formatPrice(data.avgShortEntryPrice)}
+                                    <span className="text-xs ml-1">
+                                      ({shortPriceDiff >= 0 ? "+" : ""}
+                                      {shortPriceDiff.toFixed(1)}%)
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Position Distribution */}
+                            <div className="mb-3">
+                              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                                <span>
+                                  Long {longPercentage.toFixed(1)}% (
+                                  {data.longCount})
+                                </span>
+                                <span>
+                                  Short {shortPercentage.toFixed(1)}% (
+                                  {data.shortCount})
+                                </span>
+                              </div>
+                              <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-green-500 dark:bg-green-600 rounded-l-full"
+                                  style={{
+                                    width: `${longPercentage}%`,
+                                    float: "left",
+                                  }}
+                                ></div>
+                                <div
+                                  className="h-full bg-red-500 dark:bg-red-600 rounded-r-full"
+                                  style={{
+                                    width: `${shortPercentage}%`,
+                                    float: "left",
+                                  }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            {/* Position Size and PnL */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                              <div>
+                                <div className="text-sm font-medium mb-1">
+                                  Position Size
+                                </div>
+                                <div className="flex justify-between">
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">
+                                      Long:
+                                    </span>
+                                    <span className="ml-1 font-medium text-green-600 dark:text-green-400">
+                                      {data.longSize.toFixed(2)} (
+                                      {formatCurrency(data.longUSD)})
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">
+                                      Short:
+                                    </span>
+                                    <span className="ml-1 font-medium text-red-600 dark:text-red-400">
+                                      {data.shortSize.toFixed(2)} (
+                                      {formatCurrency(data.shortUSD)})
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium mb-1">
+                                  PnL
+                                </div>
+                                <div className="flex justify-between">
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">
+                                      Long:
+                                    </span>
+                                    <span
+                                      className={`ml-1 font-medium ${data.longPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                    >
+                                      {formatCurrency(data.longPnl)}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">
+                                      Short:
+                                    </span>
+                                    <span
+                                      className={`ml-1 font-medium ${data.shortPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                    >
+                                      {formatCurrency(data.shortPnl)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-right">
+                                  <span className="text-xs text-muted-foreground">
+                                    Total:
+                                  </span>
+                                  <span
+                                    className={`ml-1 font-medium ${data.totalPnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                  >
+                                    {formatCurrency(data.totalPnl)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Trading Signal */}
+                            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+                              <div className="mb-2 text-xs text-blue-600 dark:text-blue-400">
+                                Analysis based on {data.totalCount} active
+                                positions
+                              </div>
+
+                              {/* Advanced Trading Signal Logic */}
+                              {(() => {
+                                // Calculate key metrics for decision making
+                                const longBias =
+                                  data.longCount / data.totalCount;
+                                const shortBias =
+                                  data.shortCount / data.totalCount;
+                                const longProfitability =
+                                  data.longCount > 0
+                                    ? data.longPnl / data.longUSD
+                                    : 0;
+                                const shortProfitability =
+                                  data.shortCount > 0
+                                    ? data.shortPnl / data.shortUSD
+                                    : 0;
+                                const overallProfitability =
+                                  data.totalUSD > 0
+                                    ? data.totalPnl / data.totalUSD
+                                    : 0;
+
+                                // Price position relative to entries
+                                const priceVsLongEntry =
+                                  data.avgLongEntryPrice > 0
+                                    ? (data.currentPrice -
+                                        data.avgLongEntryPrice) /
+                                      data.avgLongEntryPrice
+                                    : 0;
+                                const priceVsShortEntry =
+                                  data.avgShortEntryPrice > 0
+                                    ? (data.avgShortEntryPrice -
+                                        data.currentPrice) /
+                                      data.avgShortEntryPrice
+                                    : 0;
+
+                                // Determine confidence level based on position count and profitability
+                                const getConfidenceLevel = () => {
+                                  if (
+                                    data.totalCount >= 8 &&
+                                    Math.abs(overallProfitability) > 0.05
+                                  )
+                                    return "Very High";
+                                  if (
+                                    data.totalCount >= 5 &&
+                                    Math.abs(overallProfitability) > 0.02
+                                  )
+                                    return "High";
+                                  if (data.totalCount >= 3) return "Medium";
+                                  return "Low";
+                                };
+
+                                const confidence = getConfidenceLevel();
+
+                                // SCENARIO 1: Strong Long Consensus (70%+ long positions)
+                                if (longBias >= 0.7) {
+                                  // If long positions are profitable and current price is below average entry
+                                  if (
+                                    longProfitability > 0 &&
+                                    priceVsLongEntry < 0
+                                  ) {
+                                    const discount = Math.abs(
+                                      priceVsLongEntry * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
+                                          🚀 STRONG LONG - {discount}% Discount
+                                          ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-green-700 dark:text-green-300">
+                                          {data.longCount} addresses are long &
+                                          profitable. Current price is{" "}
+                                          {discount}% below their avg entry.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  // If long positions are profitable but price is above entry (still good but not optimal)
+                                  else if (
+                                    longProfitability > 0 &&
+                                    priceVsLongEntry >= 0
+                                  ) {
+                                    const premium = (
+                                      priceVsLongEntry * 100
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
+                                          📈 FOLLOW LONG - {premium}% Premium (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-blue-700 dark:text-blue-300">
+                                          {data.longCount} addresses are long &
+                                          profitable. Price is {premium}% above
+                                          their avg entry but trend is strong.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  // If long positions are losing money, be cautious
+                                  else if (longProfitability < 0) {
+                                    const loss = Math.abs(
+                                      longProfitability * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
+                                          ⚠️ CAUTION - Long Positions Losing (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
+                                          {data.longCount} addresses are long
+                                          but down {loss}%. Wait for better
+                                          entry or consider their exit.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+
+                                // SCENARIO 2: Strong Short Consensus (70%+ short positions)
+                                else if (shortBias >= 0.7) {
+                                  // If short positions are profitable and current price is above average entry
+                                  if (
+                                    shortProfitability > 0 &&
+                                    priceVsShortEntry < 0
+                                  ) {
+                                    const premium = Math.abs(
+                                      priceVsShortEntry * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
+                                          📉 STRONG SHORT - {premium}% Premium (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-red-700 dark:text-red-300">
+                                          {data.shortCount} addresses are short
+                                          & profitable. Current price is{" "}
+                                          {premium}% above their avg entry.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  // If short positions are profitable but price is below entry
+                                  else if (
+                                    shortProfitability > 0 &&
+                                    priceVsShortEntry >= 0
+                                  ) {
+                                    const discount = (
+                                      priceVsShortEntry * 100
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
+                                          📊 FOLLOW SHORT - {discount}% Below
+                                          Entry ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-orange-700 dark:text-orange-300">
+                                          {data.shortCount} addresses are short
+                                          & profitable. Price dropped {discount}
+                                          % below their entry, trend continues.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  // If short positions are losing money
+                                  else if (shortProfitability < 0) {
+                                    const loss = Math.abs(
+                                      shortProfitability * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
+                                          ⚠️ CAUTION - Short Positions Losing (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
+                                          {data.shortCount} addresses are short
+                                          but down {loss}%. Consider if they
+                                          might exit soon.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+
+                                // SCENARIO 3: Balanced positions (40-60% split)
+                                else if (longBias >= 0.4 && longBias <= 0.6) {
+                                  // Compare profitability of both sides
+                                  if (
+                                    longProfitability > shortProfitability &&
+                                    longProfitability > 0.02
+                                  ) {
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
+                                          📊 LONG EDGE - Longs Outperforming (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-green-700 dark:text-green-300">
+                                          Balanced positions but longs are{" "}
+                                          {(longProfitability * 100).toFixed(1)}
+                                          % profitable vs shorts{" "}
+                                          {(shortProfitability * 100).toFixed(
+                                            1,
+                                          )}
+                                          %.
+                                        </div>
+                                      </div>
+                                    );
+                                  } else if (
+                                    shortProfitability > longProfitability &&
+                                    shortProfitability > 0.02
+                                  ) {
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
+                                          📊 SHORT EDGE - Shorts Outperforming (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-red-700 dark:text-red-300">
+                                          Balanced positions but shorts are{" "}
+                                          {(shortProfitability * 100).toFixed(
+                                            1,
+                                          )}
+                                          % profitable vs longs{" "}
+                                          {(longProfitability * 100).toFixed(1)}
+                                          %.
+                                        </div>
+                                      </div>
+                                    );
+                                  } else {
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900 dark:text-gray-200">
+                                          ⚖️ BALANCED - No Clear Edge (
+                                          {confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-gray-700 dark:text-gray-300">
+                                          {data.longCount} long,{" "}
+                                          {data.shortCount} short. Both sides
+                                          showing similar performance. Wait for
+                                          clearer signal.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+
+                                // SCENARIO 4: Moderate bias (60-70%)
+                                else if (longBias > 0.6) {
+                                  if (
+                                    longProfitability > 0 &&
+                                    priceVsLongEntry < -0.02
+                                  ) {
+                                    const discount = Math.abs(
+                                      priceVsLongEntry * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
+                                          📈 LONG OPPORTUNITY - {discount}%
+                                          Discount ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-blue-700 dark:text-blue-300">
+                                          {data.longCount} addresses favor long,
+                                          profitable, and price is {discount}%
+                                          below their avg entry.
+                                        </div>
+                                      </div>
+                                    );
+                                  } else if (longProfitability > 0) {
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
+                                          📈 LEAN LONG - Following Profitable
+                                          Trend ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-blue-700 dark:text-blue-300">
+                                          {data.longCount} addresses lean long
+                                          and are profitable. Consider following
+                                          their lead.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                } else if (shortBias > 0.6) {
+                                  if (
+                                    shortProfitability > 0 &&
+                                    priceVsShortEntry < -0.02
+                                  ) {
+                                    const premium = Math.abs(
+                                      priceVsShortEntry * 100,
+                                    ).toFixed(1);
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
+                                          📉 SHORT OPPORTUNITY - {premium}%
+                                          Premium ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-orange-700 dark:text-orange-300">
+                                          {data.shortCount} addresses favor
+                                          short, profitable, and price is{" "}
+                                          {premium}% above their avg entry.
+                                        </div>
+                                      </div>
+                                    );
+                                  } else if (shortProfitability > 0) {
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
+                                          📉 LEAN SHORT - Following Profitable
+                                          Trend ({confidence} Confidence)
+                                        </Badge>
+                                        <div className="text-xs text-orange-700 dark:text-orange-300">
+                                          {data.shortCount} addresses lean short
+                                          and are profitable. Consider following
+                                          their lead.
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+
+                                // Default case - insufficient data or unclear signals
+                                return (
+                                  <div className="space-y-2">
+                                    <Badge className="bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900 dark:text-gray-200">
+                                      🤔 INSUFFICIENT DATA - ({confidence}{" "}
+                                      Confidence)
+                                    </Badge>
+                                    <div className="text-xs text-gray-700 dark:text-gray-300">
+                                      Need more data or clearer signals. Monitor
+                                      for position changes and profitability
+                                      trends.
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </Card>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
