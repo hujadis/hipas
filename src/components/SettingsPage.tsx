@@ -201,26 +201,48 @@ const SettingsPage = ({ onBack }: SettingsPageProps) => {
   };
 
   const handleTestNotification = async () => {
+    console.log("🧪 Test notification button clicked");
+
     if (emails.length === 0) {
+      console.warn("❌ No emails configured for test");
       setError("Please add at least one email address before testing");
       return;
     }
+
+    console.log(
+      `📧 Testing with ${emails.length} email(s):`,
+      emails.map((e) => e.email),
+    );
 
     setTestLoading(true);
     setError(null);
     setTestSuccess(false);
 
     try {
+      console.log("🚀 Calling sendTestNotification function...");
       const success = await sendTestNotification();
+      console.log("📬 sendTestNotification result:", success);
+
       if (success) {
+        console.log("✅ Test notification sent successfully");
         setTestSuccess(true);
-        setTimeout(() => setTestSuccess(false), 3000); // Clear success message after 3 seconds
+        setTimeout(() => setTestSuccess(false), 5000); // Clear success message after 5 seconds
       } else {
-        setError("Failed to send test notification");
+        console.error("❌ Test notification failed - function returned false");
+        setError(
+          "Failed to send test notification. Check console for details.",
+        );
       }
     } catch (error) {
-      console.error("Error sending test notification:", error);
-      setError("Failed to send test notification");
+      console.error("💥 Error in handleTestNotification:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        error,
+      });
+      setError(
+        `Failed to send test notification: ${error.message || "Unknown error"}`,
+      );
     } finally {
       setTestLoading(false);
     }

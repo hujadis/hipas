@@ -3139,72 +3139,28 @@ const PositionTable = ({
                                       </div>
                                     );
                                   }
-                                  // If long positions are losing money - FOLLOW THE TRADERS
+                                  // If long positions are losing money, be cautious
                                   else if (longProfitability < 0) {
                                     const loss = Math.abs(
                                       longProfitability * 100,
                                     ).toFixed(1);
-                                    // Check if current price is better than their average entry for buying
-                                    const priceAdvantage =
-                                      data.currentPrice < data.avgLongEntryPrice
-                                        ? (
-                                            ((data.avgLongEntryPrice -
-                                              data.currentPrice) /
-                                              data.avgLongEntryPrice) *
-                                            100
-                                          ).toFixed(1)
-                                        : null;
-
-                                    if (
-                                      priceAdvantage &&
-                                      parseFloat(priceAdvantage) > 2
-                                    ) {
-                                      return (
-                                        <div className="space-y-2">
-                                          <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-200">
-                                            🚀 FOLLOW THE LONGS - Better Entry
-                                          </Badge>
-                                          <div className="text-xs text-green-700 dark:text-green-300">
-                                            <strong>What's happening:</strong>{" "}
-                                            {data.longCount} top traders are
-                                            buying {asset}. Even though they're
-                                            currently losing {loss}%, the
-                                            current price is {priceAdvantage}%
-                                            lower than their average entry.
-                                            <br />
-                                            <strong>My suggestion:</strong>{" "}
-                                            EXCELLENT TIME TO BUY. You can enter
-                                            at a better price than these
-                                            successful traders. Follow their
-                                            strategy with better timing.
-                                          </div>
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
+                                          ⚠️ WAIT - Buyers Are Losing
+                                        </Badge>
+                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.longCount} traders bought{" "}
+                                          {asset} but they're losing {loss}% of
+                                          their money.
+                                          <br />
+                                          <strong>My suggestion:</strong> DON'T
+                                          BUY yet. Wait for price to go lower or
+                                          see if they start selling.
                                         </div>
-                                      );
-                                    } else {
-                                      return (
-                                        <div className="space-y-2">
-                                          <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200">
-                                            🚀 FOLLOW THE LONGS - Wait for
-                                            Better Entry
-                                          </Badge>
-                                          <div className="text-xs text-blue-700 dark:text-blue-300">
-                                            <strong>What's happening:</strong>{" "}
-                                            {data.longCount} top traders are
-                                            buying {asset} but currently losing{" "}
-                                            {loss}%. Current price is close to
-                                            their entry.
-                                            <br />
-                                            <strong>My suggestion:</strong>{" "}
-                                            These traders are betting on a price
-                                            rise. Wait for price to drop below $
-                                            {formatPrice(
-                                              data.avgLongEntryPrice,
-                                            )}{" "}
-                                            to get a better buy entry than them.
-                                          </div>
-                                        </div>
-                                      );
-                                    }
+                                      </div>
+                                    );
                                   }
                                 }
 
@@ -3265,76 +3221,28 @@ const PositionTable = ({
                                       </div>
                                     );
                                   }
-                                  // If short positions are losing money - FOLLOW THE TRADERS
+                                  // If short positions are losing money
                                   else if (shortProfitability < 0) {
                                     const loss = Math.abs(
                                       shortProfitability * 100,
                                     ).toFixed(1);
-                                    // Check if current price is better than their average entry for shorting
-                                    const priceAdvantage =
-                                      data.currentPrice >
-                                      data.avgShortEntryPrice
-                                        ? (
-                                            ((data.currentPrice -
-                                              data.avgShortEntryPrice) /
-                                              data.avgShortEntryPrice) *
-                                            100
-                                          ).toFixed(1)
-                                        : null;
-
-                                    if (
-                                      priceAdvantage &&
-                                      parseFloat(priceAdvantage) > 2
-                                    ) {
-                                      return (
-                                        <div className="space-y-2">
-                                          <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200">
-                                            📉 FOLLOW THE SHORTS - Better Entry
-                                          </Badge>
-                                          <div className="text-xs text-red-700 dark:text-red-300">
-                                            <strong>What's happening:</strong>{" "}
-                                            {data.shortCount} top traders are
-                                            shorting {asset}. Even though
-                                            they're currently losing {loss}%,
-                                            the current price is{" "}
-                                            {priceAdvantage}% higher than their
-                                            average entry.
-                                            <br />
-                                            <strong>My suggestion:</strong> GOOD
-                                            TIME TO SHORT. You can enter at a
-                                            better price than these successful
-                                            traders. Follow their strategy with
-                                            better timing.
-                                          </div>
+                                    return (
+                                      <div className="space-y-2">
+                                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200">
+                                          ⚠️ WAIT - Sellers Are Losing
+                                        </Badge>
+                                        <div className="text-xs text-yellow-700 dark:text-yellow-300">
+                                          <strong>What's happening:</strong>{" "}
+                                          {data.shortCount} traders sold {asset}{" "}
+                                          but they're losing {loss}% of their
+                                          money.
+                                          <br />
+                                          <strong>My suggestion:</strong> DON'T
+                                          SELL yet. Price is going up against
+                                          the sellers. Consider buying instead.
                                         </div>
-                                      );
-                                    } else {
-                                      return (
-                                        <div className="space-y-2">
-                                          <Badge className="bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900 dark:text-orange-200">
-                                            📉 FOLLOW THE SHORTS - Wait for
-                                            Better Entry
-                                          </Badge>
-                                          <div className="text-xs text-orange-700 dark:text-orange-300">
-                                            <strong>What's happening:</strong>{" "}
-                                            {data.shortCount} top traders are
-                                            shorting {asset} but currently
-                                            losing {loss}%. Current price is
-                                            close to their entry.
-                                            <br />
-                                            <strong>My suggestion:</strong>{" "}
-                                            These traders are betting on a price
-                                            drop. Wait for price to go higher
-                                            than $
-                                            {formatPrice(
-                                              data.avgShortEntryPrice,
-                                            )}{" "}
-                                            to get a better short entry than
-                                            them.
-                                          </div>
-                                        </div>
-                                      );
-                                    }
+                                      </div>
+                                    );
                                   }
                                 }
 
